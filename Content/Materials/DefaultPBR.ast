@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Material name="DefaultPBR">
+  <Shader>StandardPBR</Shader>
+  <Parameters>
+    <Parameter name="Metallic" type="Float">0</Parameter>
+    <Parameter name="Roughness" type="Float">0.5</Parameter>
+    <Parameter name="BaseColor" type="Vector4">1 1 1 1</Parameter>
+  </Parameters>
+  <Textures>
+    <Texture name="BaseColorTex" slot="t10">F:\desktop\Engine\FEngine\Content\Texture\color.texture.ast</Texture>
+    <Texture name="NormalTex" slot="t11">F:\desktop\Engine\FEngine\Content\Texture\normal.texture.ast</Texture>
+    <Texture name="OrmTex" slot="t12">F:\desktop\Engine\FEngine\Content\Texture\orm.texture.ast</Texture>
+  </Textures>
+</Material>

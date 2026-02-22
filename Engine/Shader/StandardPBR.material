@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Shader name="StandardPBR">
+  <ShaderFiles>
+    <VertexShader>Engine/Shader/standard_pbr.hlsl</VertexShader>
+    <PixelShader>Engine/Shader/standard_pbr.hlsl</PixelShader>
+    <VSEntryPoint>MainVS</VSEntryPoint>
+    <PSEntryPoint>MainPS</PSEntryPoint>
+  </ShaderFiles>
+
+  <Parameters>
+    <!-- Vector参数：基础颜色 -->
+    <Parameter name="BaseColor" type="Vector4" register="b1" offset="0">
+      <Default>1.0 1.0 1.0 1.0</Default>
+      <UIWidget>ColorPicker</UIWidget>
+    </Parameter>
+
+    <!-- Float参数：粗糙度 -->
+    <Parameter name="Roughness" type="Float" register="b1" offset="16">
+      <Default>0.5</Default>
+      <Range min="0.0" max="1.0"/>
+      <UIWidget>Slider</UIWidget>
+    </Parameter>
+
+    <!-- Float参数：金属度 -->
+    <Parameter name="Metallic" type="Float" register="b1" offset="20">
+      <Default>0.0</Default>
+      <Range min="0.0" max="1.0"/>
+      <UIWidget>Slider</UIWidget>
+    </Parameter>
+
+    <!-- 纹理参数：基础颜色贴图 -->
+    <Parameter name="BaseColorTexture" type="Texture2D" register="t10" offset="0">
+      <Default>Content/Texture/white.dds</Default>
+      <UIWidget>TexturePicker</UIWidget>
+    </Parameter>
+
+    <!-- 纹理参数：法线贴图 -->
+    <Parameter name="NormalTexture" type="Texture2D" register="t11" offset="0">
+      <Default>Content/Texture/normal_default.dds</Default>
+      <UIWidget>TexturePicker</UIWidget>
+    </Parameter>
+
+    <!-- 纹理参数：ORM贴图 (Occlusion/Roughness/Metallic) -->
+    <Parameter name="OrmTexture" type="Texture2D" register="t12" offset="0">
+      <Default>Content/Texture/white.dds</Default>
+      <UIWidget>TexturePicker</UIWidget>
+    </Parameter>
+  </Parameters>
+
+  <ConstantBufferLayout register="b1">
+    <Size>256</Size>
+  </ConstantBufferLayout>
+
+  <RenderState>
+    <CullMode>Back</CullMode>
+    <BlendState>Opaque</BlendState>
+    <DepthTest>true</DepthTest>
+    <DepthWrite>true</DepthWrite>
+  </RenderState>
+</Shader>

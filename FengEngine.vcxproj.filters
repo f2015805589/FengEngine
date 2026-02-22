@@ -1,0 +1,240 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="ImGui\imgui.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_demo.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_draw.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_impl_dx12.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_impl_win32.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_tables.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ImGui\imgui_widgets.cpp">
+      <Filter>ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\main.cpp">
+      <Filter>Engine</Filter>
+    </ClCompile>
+    <ClCompile Include="stbi\stb_image.cpp">
+      <Filter>Stbi</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTex\DDSTextureLoader\DDSTextureLoader12.cpp">
+      <Filter>DDSLoader</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\BattleFireDirect.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Camera.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\ImguiPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\lightpass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Scene.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\ScreenPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\StaticMeshComponent.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Material\MaterialManager.cpp">
+      <Filter>Engine\private\Material</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Material\MaterialEditorPanel.cpp">
+      <Filter>Engine\private\Material</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Material\MaterialInstance.cpp">
+      <Filter>Engine\private\Material</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Material\Shader.cpp">
+      <Filter>Engine\private\Material</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Material\ShaderParser.cpp">
+      <Filter>Engine\private\Material</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Actor.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\ResourceManager.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\SkyPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Settings.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Texture\TextureAsset.cpp">
+      <Filter>Engine\private\Texture</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Texture\TextureCompressor.cpp">
+      <Filter>Engine\private\Texture</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Texture\TextureManager.cpp">
+      <Filter>Engine\private\Texture</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\Texture\TexturePreviewPanel.cpp">
+      <Filter>Engine\private\Texture</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\IBLResources.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+    <ClCompile Include="Engine\private\TaaPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="ImGui\imconfig.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imgui.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imgui_impl_dx12.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imgui_impl_win32.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imgui_internal.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imstb_rectpack.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imstb_textedit.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\imstb_truetype.h">
+      <Filter>ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="stbi\stb_image.h">
+      <Filter>Stbi</Filter>
+    </ClInclude>
+    <ClInclude Include="DirectXTex\DDSTextureLoader\DDSTextureLoader12.h">
+      <Filter>DDSLoader</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\BattleFireDirect.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Camera.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\ImguiPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\lightpass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Scene.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\ScreenPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\StaticMeshComponent.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\MaterialEditorPanel.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\MaterialInstance.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\MaterialManager.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\Shader.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\ShaderParameter.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Material\ShaderParser.h">
+      <Filter>Engine\public\Material</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Actor.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\ResourceManager.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\SkyPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Settings.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Texture\TextureAsset.h">
+      <Filter>Engine\public\Texture</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Texture\TextureCompressor.h">
+      <Filter>Engine\public\Texture</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Texture\TextureManager.h">
+      <Filter>Engine\public\Texture</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\Texture\TexturePreviewPanel.h">
+      <Filter>Engine\public\Texture</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\IBLResources.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\TaaPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="ImGui">
+      <UniqueIdentifier>{4d322a52-0353-4027-9ac5-1d217a842a39}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine">
+      <UniqueIdentifier>{4ee0df4a-7877-47d0-afa8-a2136bd0c6fb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\public">
+      <UniqueIdentifier>{560a04f7-1b0e-4d3f-98ba-7c35ea1b438c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\private">
+      <UniqueIdentifier>{812a5dca-1408-4b5c-b999-327cb276b866}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Stbi">
+      <UniqueIdentifier>{84fd4764-643d-4d69-809e-442a99d0b53b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="DirectxTex">
+      <UniqueIdentifier>{c8b958e7-207c-4f7b-bb83-211735294322}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="DDSLoader">
+      <UniqueIdentifier>{f11ca181-e34f-4b09-b566-339a34f9f446}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\private\Material">
+      <UniqueIdentifier>{f5b0fe13-16b9-4a33-809d-7c25e6a5362f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\public\Material">
+      <UniqueIdentifier>{76a85ca5-152f-472e-af22-8e9cd448d703}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\public\Texture">
+      <UniqueIdentifier>{713f09e1-dc88-4c09-820e-a2859d5f3ff8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Engine\private\Texture">
+      <UniqueIdentifier>{ae8aa7cc-8443-47be-823f-54c1244e3916}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

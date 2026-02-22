@@ -1,0 +1,11 @@
+[Level]
+Name=Default
+Description=Default level
+
+[Actor_0]
+Name=Sphere_1
+MeshAsset=Content/Actor/Mesh/sphere.mesh
+Material=DefaultPBR
+Position=0,0,0
+Rotation=0,0,0
+Scale=1,1,1

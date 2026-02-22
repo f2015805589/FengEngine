@@ -1,0 +1,4 @@
+[MeshAsset]
+Name=Box
+FBXPath=Content/Actor/FBX/box.fbx
+DefaultMaterial=DefaultPBR

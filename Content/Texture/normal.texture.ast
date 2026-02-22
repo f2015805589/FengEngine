@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAsset name="normal" version="1.0">
+  <Source>
+    <Path>F:\desktop\Engine\FEngine\Content\Texture\normal.png</Path>
+    <SourceHash>32a0aad164b9e7a92d3df97109221e97</SourceHash>
+  </Source>
+  <TextureType>Texture2D</TextureType>
+  <Compression>
+    <Format>BC3</Format>
+    <GenerateMips>true</GenerateMips>
+    <sRGB>true</sRGB>
+  </Compression>
+  <Cache>
+    <DdsPath>F:\desktop\Engine\FEngine\Content\Texture\TextureCache\normal.dds</DdsPath>
+    <CacheValid>true</CacheValid>
+  </Cache>
+  <RuntimeInfo>
+    <Width>4096</Width>
+    <Height>4096</Height>
+    <MipLevels>13</MipLevels>
+    <MemorySize>22369648</MemorySize>
+  </RuntimeInfo>
+</TextureAsset>

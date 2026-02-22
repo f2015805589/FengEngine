@@ -1,0 +1,4 @@
+[MeshAsset]
+Name=Sphere
+FBXPath=Content/Actor/FBX/sphere.fbx
+DefaultMaterial=DefaultPBR

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Material name="RedMetal">
+  <Shader>StandardPBR</Shader>
+
+  <Parameters>
+    <Parameter name="BaseColor" type="Vector4">0.8 0.1 0.1 1.0</Parameter>
+    <Parameter name="Roughness" type="Float">0.3</Parameter>
+    <Parameter name="Metallic" type="Float">0.9</Parameter>
+  </Parameters>
+
+  <Textures>
+    <Texture name="BaseColorTex">Content/Texture/white.dds</Texture>
+    <Texture name="NormalTex">Content/Texture/normal_default.dds</Texture>
+    <Texture name="OrmTex">Content/Texture/white.dds</Texture>
+  </Textures>
+</Material>

@@ -1,0 +1,31 @@
+# 构建产物
+x64/
+Debug/
+Release/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.lib
+*.log
+*.user
+*.suo
+*.sdf
+*.opensdf
+.vs/
+
+# 纹理缓存（运行时生成）
+**/TextureCache/
+
+# Shader缓存（运行时生成）
+Engine/Shader/Shader_Cache/log/
+Engine/Shader/Shader_Cache/*.hlsl
+
+# ImGui配置（运行时生成）
+**/imgui.ini
+
+# 系统文件
+Thumbs.db
+*.tmp
+Desktop.ini
+Engine/nul

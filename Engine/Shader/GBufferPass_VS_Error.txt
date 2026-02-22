@@ -1,0 +1,2 @@
+F:\desktop\Engine\FEngine\Shader@0x0000020FFAE56900(33,43-53): error X3721: space is only supported for shader targets 5.1 and higher
+F:\desktop\Engine\FEngine\Shader@0x0000020FFAE56900(33,11-54): error X3074: 'g_BindlessTextures': implicit array missing initial value
