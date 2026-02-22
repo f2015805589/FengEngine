@@ -7,12 +7,20 @@ Release/
 *.ilk
 *.exe
 *.lib
+*.dll
 *.log
 *.user
 *.suo
 *.sdf
 *.opensdf
 .vs/
+
+# 白名单：第三方SDK的lib/dll/exe需要保留
+!fbxsdk/**/*.lib
+!fbxsdk/**/*.dll
+!Tools/**/*.exe
+!Tools/**/*.dll
+!libfbxsdk.dll
 
 # 纹理缓存（运行时生成）
 **/TextureCache/
