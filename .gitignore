@@ -18,6 +18,7 @@ Release/
 # 白名单：第三方SDK的lib/dll/exe需要保留
 !fbxsdk/**/*.lib
 !fbxsdk/**/*.dll
+!DirectXTex/**/*.lib
 !Tools/**/*.exe
 !Tools/**/*.dll
 !libfbxsdk.dll
