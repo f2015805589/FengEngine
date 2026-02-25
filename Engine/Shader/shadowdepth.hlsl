@@ -1,7 +1,7 @@
-// shadowdepth.hlsl - Complete rewrite for shadow depth rendering
-// Renders scene from light's perspective and outputs depth to R32_FLOAT render target
+// shadowdepth.hlsl - Shadow Map深度渲染
+// 从光源视角渲染场景深度到Shadow Map
 
-// Constant buffer with light view-projection matrix
+// 场景常量缓冲区（与其他Pass共享）
 cbuffer SceneConstants : register(b0)
 {
     float4x4 ProjectionMatrix;
@@ -18,10 +18,10 @@ cbuffer SceneConstants : register(b0)
     float4x4 InverseViewMatrix;
     float3 SkylightColor;
     float _Padding3;
-    float4x4 LightViewProjectionMatrix;  // Light's view-projection matrix
+    float4x4 LightViewProjectionMatrix;  // LiSPSM矩阵
 };
 
-// Input vertex format (matches StaticMeshComponent)
+// 输入顶点格式（与StaticMeshComponent一致）
 struct VertexInput
 {
     float4 position : POSITION;
@@ -30,38 +30,29 @@ struct VertexInput
     float4 tangent : TANGENT;
 };
 
-// Output to pixel shader
+// 输出到像素着色器
 struct VSOutput
 {
-    float4 position : SV_POSITION;  // Clip space position from light's perspective
-    float depth : TEXCOORD0;        // Linear depth for manual output
+    float4 position : SV_POSITION;  // 光源空间裁剪坐标
 };
 
-// Vertex Shader: Transform vertices to light clip space
+// 顶点着色器：将顶点变换到光源裁剪空间
 VSOutput ShadowDepthVS(VertexInput input)
 {
     VSOutput output;
 
-    // 1. Model space -> World space
+    // 1. 模型空间 -> 世界空间
     float4 positionWS = mul(ModelMatrix, float4(input.position.xyz, 1.0));
 
-    // 2. World space -> Light clip space
-    float4 positionLS = mul(LightViewProjectionMatrix, positionWS);
-
-    // Output clip space position for rasterization
-    output.position = positionLS;
-
-    // Store linear depth (Z/W) for pixel shader
-    // After perspective divide, this will be in [0,1] range
-    output.depth = positionLS.z / positionLS.w;
+    // 2. 世界空间 -> 光源裁剪空间（使用LiSPSM矩阵）
+    output.position = mul(LightViewProjectionMatrix, positionWS);
 
     return output;
 }
 
-// Pixel Shader: Output depth to R32_FLOAT render target
-float4 ShadowDepthPS(VSOutput input) : SV_TARGET
+// 像素着色器：空实现，只需要深度写入
+// 深度值由硬件自动写入DSV
+void ShadowDepthPS(VSOutput input)
 {
-    // Output linear depth to red channel
-    // This depth value is already in [0,1] NDC range after perspective divide
-    return float4(input.depth, 0.0, 0.0, 1.0);
+    // 不输出任何颜色，深度由光栅化阶段自动写入
 }

@@ -97,6 +97,9 @@
     <ClCompile Include="Engine\private\TaaPass.cpp">
       <Filter>Engine\private</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\private\ShadowPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ImGui\imconfig.h">
@@ -199,6 +202,9 @@
       <Filter>Engine\public</Filter>
     </ClInclude>
     <ClInclude Include="Engine\public\TaaPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\ShadowPass.h">
       <Filter>Engine\public</Filter>
     </ClInclude>
   </ItemGroup>

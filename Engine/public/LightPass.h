@@ -15,6 +15,18 @@ public:
     void SetSceneConstantBuffer(ID3D12Resource* sceneCB) { m_sceneConstantBuffer = sceneCB; }
 
     bool Initialize(ID3D12GraphicsCommandList* commandList);
+
+    // 渲染（带深度缓冲和Shadow Map）
+    void Render(ID3D12GraphicsCommandList* commandList,
+        ID3D12PipelineState* pso,
+        ID3D12RootSignature* rootSignature,
+        ID3D12Resource* rt0,           // GBuffer: Albedo
+        ID3D12Resource* rt1,           // GBuffer: Normal
+        ID3D12Resource* rt2,           // GBuffer: MetallicRoughness
+        ID3D12Resource* depthBuffer,   // 深度缓冲（用于重建世界坐标）
+        ID3D12Resource* shadowMap);    // Shadow Map（用于阴影计算）
+
+    // 旧版本兼容（不带Shadow Map）
     void Render(ID3D12GraphicsCommandList* commandList,
         ID3D12PipelineState* pso,
         ID3D12RootSignature* rootSignature,
@@ -22,7 +34,7 @@ public:
         ID3D12Resource* rt1,
         ID3D12Resource* rt2);
 
-    ID3D12Resource* GetShadowMap() const { return m_shadowMap.Get(); }
+    ID3D12Resource* GetLightRT() const { return m_lightRT.Get(); }
     ID3D12DescriptorHeap* GetSRVHeap() const { return m_srvHeap.Get(); }
 
 
@@ -35,21 +47,23 @@ public:
     int GetHeight() const { return m_height; }
 private:
     void CreateSRVHeap();
-    void CreateShadowMap(ID3D12GraphicsCommandList* commandList);
+    void CreateLightRT(ID3D12GraphicsCommandList* commandList);
     void CreateInputSRVs(ID3D12GraphicsCommandList* commandList,
         ID3D12Resource* rt0,
         ID3D12Resource* rt1,
-        ID3D12Resource* rt2);
+        ID3D12Resource* rt2,
+        ID3D12Resource* depthBuffer,
+        ID3D12Resource* shadowMap);
 
     int m_width;
     int m_height;
 
-    // 阴影贴图资源
-    ComPtr<ID3D12Resource> m_shadowMap;
+    // Light Pass输出RT（光照结果）
+    ComPtr<ID3D12Resource> m_lightRT;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     UINT m_rtvDescriptorSize;
 
-    // 输入RT的SRV描述符堆
+    // 输入RT的SRV描述符堆（5个：3个GBuffer + 深度 + ShadowMap）
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     UINT m_srvDescriptorSize;
 

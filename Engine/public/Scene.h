@@ -60,10 +60,12 @@ public:
     bool LoadLevel(const std::wstring& levelFilePath, ID3D12GraphicsCommandList* commandList);
     bool SaveLevel(const std::wstring& levelFilePath);
 
-    // LiSPSM矩阵计算
+    // LiSPSM矩阵计算（Light Space Perspective Shadow Maps）
     DirectX::XMMATRIX CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir,
                                             const DirectX::XMMATRIX& cameraView,
                                             const DirectX::XMMATRIX& cameraProj);
+    // 标准正交阴影矩阵（LiSPSM退化情况使用）
+    DirectX::XMMATRIX CalculateStandardShadowMatrix(const DirectX::XMVECTOR& lightDir);
 
     // 异步加载纹理（对外接口）
     bool AsyncLoadTextures();

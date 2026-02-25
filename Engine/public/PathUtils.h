@@ -6,18 +6,54 @@
 #include <windows.h>
 
 // 获取项目根目录（FEngine/）
-// exe 输出在 FEngine/x64/Debug/FEngine.exe，向上回溯3级
+// 支持两种输出位置：
+// 1. FEngine/x64/Debug/FEngine.exe → 回溯3级
+// 2. FEngine/FEngine.exe → 回溯1级（exe直接在Solution目录）
 inline std::wstring GetProjectRoot() {
     static std::wstring root;
     if (root.empty()) {
         wchar_t exePath[MAX_PATH];
         GetModuleFileNameW(NULL, exePath, MAX_PATH);
         std::wstring path(exePath);
-        for (int i = 0; i < 3; i++) {
-            size_t pos = path.find_last_of(L"\\/");
-            if (pos != std::wstring::npos) path = path.substr(0, pos);
+
+        // 获取exe所在目录
+        size_t pos = path.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) {
+            std::wstring exeDir = path.substr(0, pos);
+
+            // 检查Engine目录是否在exe同级目录下
+            std::wstring testPath = exeDir + L"\\Engine\\";
+            DWORD attr = GetFileAttributesW(testPath.c_str());
+            if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                // exe在Solution根目录（FEngine/FEngine.exe）
+                root = exeDir + L"\\";
+            } else {
+                // exe在子目录（FEngine/x64/Debug/FEngine.exe），回溯到找到Engine目录
+                std::wstring searchPath = exeDir;
+                for (int i = 0; i < 5; i++) {  // 最多回溯5级
+                    pos = searchPath.find_last_of(L"\\/");
+                    if (pos == std::wstring::npos) break;
+                    searchPath = searchPath.substr(0, pos);
+
+                    testPath = searchPath + L"\\Engine\\";
+                    attr = GetFileAttributesW(testPath.c_str());
+                    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                        root = searchPath + L"\\";
+                        break;
+                    }
+                }
+
+                // 如果还没找到，使用原来的3级回溯逻辑
+                if (root.empty()) {
+                    path = std::wstring(exePath);
+                    for (int i = 0; i < 3; i++) {
+                        pos = path.find_last_of(L"\\/");
+                        if (pos != std::wstring::npos) path = path.substr(0, pos);
+                    }
+                    root = path + L"\\";
+                }
+            }
         }
-        root = path + L"\\";
     }
     return root;
 }

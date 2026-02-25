@@ -74,7 +74,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <IncludePath>$(SolutionDir)directx;$(SolutionDir)ImGui;$(SolutionDir)Engine;$(SolutionDir)fbxsdk\2020.3.7\include;$(SolutionDir)stbi;$(SolutionDir)DirectXTex;$(SolutionDir)DDSTextureLoader;$(IncludePath)</IncludePath>
     <LibraryPath>$(SolutionDir)fbxsdk\2020.3.7\lib\x64\release;$(SolutionDir)DirectXTex\DirectXTex\Bin\Desktop_2022\x64\Debug;$(LibraryPath)</LibraryPath>
-    <OutDir>$(SolutionDir)x64\Debug\</OutDir>
+    <OutDir>$(SolutionDir)</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -152,6 +152,7 @@
     <ClCompile Include="Engine\private\Scene.cpp" />
     <ClCompile Include="Engine\private\ScreenPass.cpp" />
     <ClCompile Include="Engine\private\Settings.cpp" />
+    <ClCompile Include="Engine\private\ShadowPass.cpp" />
     <ClCompile Include="Engine\private\SkyPass.cpp" />
     <ClCompile Include="Engine\private\StaticMeshComponent.cpp" />
     <ClCompile Include="Engine\private\TaaPass.cpp" />
@@ -187,6 +188,7 @@
     <ClInclude Include="Engine\public\Scene.h" />
     <ClInclude Include="Engine\public\ScreenPass.h" />
     <ClInclude Include="Engine\public\Settings.h" />
+    <ClInclude Include="Engine\public\ShadowPass.h" />
     <ClInclude Include="Engine\public\SkyPass.h" />
     <ClInclude Include="Engine\public\StaticMeshComponent.h" />
     <ClInclude Include="Engine\public\TaaPass.h" />

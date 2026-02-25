@@ -12,6 +12,7 @@
 #include "public/ScreenPass.h"
 #include "public/SkyPass.h"
 #include "public/TaaPass.h"
+#include "public/ShadowPass.h"  // Shadow Map Pass
 #include "public/Material.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/MaterialEditorPanel.h"
@@ -188,6 +189,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         return -1;
     }
 
+    // 初始化ShadowPass（Shadow Map渲染）
+    ShadowPass* shadowPass = new ShadowPass(2048);  // 2048x2048 Shadow Map
+    shadowPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
+    if (!shadowPass->Initialize()) {
+        MessageBox(NULL, L"ShadowPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
     ScreenPass*  screenPass = new ScreenPass();
     screenPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
     if (!screenPass->Initialize(viewportWidth, viewportHeight)) {
@@ -217,8 +226,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     MaterialManager::GetInstance().SetRootSignature(rootSignature);
 
     D3D12_SHADER_BYTECODE vs, ps;
-    CreateShaderFromFile(L"Engine/Shader/ndctriangle.hlsl", "MainVS", "vs_5_0", &vs);
-    CreateShaderFromFile(L"Engine/Shader/ndctriangle.hlsl", "MainPS", "ps_5_0", &ps);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/ndctriangle.hlsl").c_str(), "MainVS", "vs_5_0", &vs);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/ndctriangle.hlsl").c_str(), "MainPS", "ps_5_0", &ps);
     ID3D12PipelineState* BasePso = CreateScenePSO(rootSignature, vs, ps);
     if (BasePso) BasePso->SetName(L"BasePso");
     ID3D12PipelineState* gbufferPso = nullptr;  // GBuffer Pass PSO（StandardPBR Pass 0）
@@ -230,18 +239,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     }
 
     D3D12_SHADER_BYTECODE lightVS, lightPS;
-    CreateShaderFromFile(L"Engine/Shader/lighting.hlsl", "LightVS", "vs_5_0", &lightVS);
-    CreateShaderFromFile(L"Engine/Shader/lighting.hlsl", "LightPS", "ps_5_0", &lightPS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/lighting.hlsl").c_str(), "LightVS", "vs_5_0", &lightVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/lighting.hlsl").c_str(), "LightPS", "ps_5_0", &lightPS);
     ID3D12PipelineState* lightPso = lightPass->CreateLightPSO(rootSignature, lightVS, lightPS);
     if (!lightPso) {
         MessageBox(NULL, L"创建LightPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
     }
 
+    // 加载ShadowDepth着色器并创建PSO
+    D3D12_SHADER_BYTECODE shadowVS, shadowPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/shadowdepth.hlsl").c_str(), "ShadowDepthVS", "vs_5_0", &shadowVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/shadowdepth.hlsl").c_str(), "ShadowDepthPS", "ps_5_0", &shadowPS);
+    ID3D12PipelineState* shadowPso = shadowPass->CreateShadowPSO(rootSignature, shadowVS, shadowPS);
+    if (!shadowPso) {
+        MessageBox(NULL, L"创建ShadowPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
     // 加载ScreenPass着色器
     D3D12_SHADER_BYTECODE screenVS, screenPS;
-    CreateShaderFromFile(L"Engine/Shader/screen.hlsl", "VS", "vs_5_0", &screenVS);
-    CreateShaderFromFile(L"Engine/Shader/screen.hlsl", "PS", "ps_5_0", &screenPS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/screen.hlsl").c_str(), "VS", "vs_5_0", &screenVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/screen.hlsl").c_str(), "PS", "ps_5_0", &screenPS);
     ID3D12PipelineState*  screenPso = screenPass->CreatePSO(rootSignature, screenVS, screenPS);
     if (!screenPso) {
         MessageBox(NULL, L"创建ScreenPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
@@ -250,8 +269,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     // 加载TaaPass着色器
     D3D12_SHADER_BYTECODE taaVS, taaPS;
-    CreateShaderFromFile(L"Engine/Shader/TAA.hlsl", "VSMain", "vs_5_0", &taaVS);
-    CreateShaderFromFile(L"Engine/Shader/TAA.hlsl", "PSMain", "ps_5_0", &taaPS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/TAA.hlsl").c_str(), "VSMain", "vs_5_0", &taaVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/TAA.hlsl").c_str(), "PSMain", "ps_5_0", &taaPS);
     ID3D12PipelineState* taaPso = taaPass->CreatePSO(rootSignature, taaVS, taaPS);
     if (!taaPso) {
         MessageBox(NULL, L"创建TaaPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
@@ -260,8 +279,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     // 加载TaaCopy着色器（用于将TAA结果复制到交换链）
     D3D12_SHADER_BYTECODE taaCopyVS, taaCopyPS;
-    CreateShaderFromFile(L"Engine/Shader/TaaCopy.hlsl", "VSMain", "vs_5_0", &taaCopyVS);
-    CreateShaderFromFile(L"Engine/Shader/TaaCopy.hlsl", "PSMain", "ps_5_0", &taaCopyPS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/TaaCopy.hlsl").c_str(), "VSMain", "vs_5_0", &taaCopyVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/TaaCopy.hlsl").c_str(), "PSMain", "ps_5_0", &taaCopyPS);
     ID3D12PipelineState* taaCopyPso = taaPass->CreateCopyPSO(rootSignature, taaCopyVS, taaCopyPS);
     if (!taaCopyPso) {
         MessageBox(NULL, L"创建TaaCopy PSO失败!", L"错误", MB_OK | MB_ICONERROR);
@@ -331,7 +350,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     // ===== 步骤3: 加载默认shader (StandardPBR) =====
     // 1. 加载StandardPBR Shader（Unity风格）
-    Shader* standardShader = MaterialManager::GetInstance().LoadShader(L"Engine/Shader/StandardPBR.shader");
+    Shader* standardShader = MaterialManager::GetInstance().LoadShader((GetEnginePath() + L"Shader/StandardPBR.shader").c_str());
     if (!standardShader) {
         MessageBox(NULL, L"加载StandardPBR shader失败!\n请确认文件路径: Engine/Shader/StandardPBR.shader", L"错误", MB_OK | MB_ICONERROR);
         return -1;
@@ -428,7 +447,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     // ======= 加载Sky shader并创建SkyPass PSO =======
     std::cout << "\n========== Loading Sky Shader ==========" << std::endl;
-    Shader* skyShader = MaterialManager::GetInstance().LoadShader(L"Engine/Shader/SkyShader/Sky.shader");
+    Shader* skyShader = MaterialManager::GetInstance().LoadShader((GetEnginePath() + L"Shader/SkyShader/Sky.shader").c_str());
     ID3D12PipelineState* skyPso = nullptr;
     if (skyShader) {
         if (skyShader->CompileShaders(gD3D12Device)) {
@@ -580,6 +599,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             g_scene->Update(deltaTime);  // 更新Scene（计算LiSPSM矩阵）
 
+            //ShadowPass=======================================
+            // 从光源视角渲染场景深度到Shadow Map
+            commandList->Reset(commandAllocator, shadowPso);
+            commandList->BeginEvent(0, L"ShadowPass", (UINT)(wcslen(L"ShadowPass") * sizeof(wchar_t)));
+            shadowPass->Render(commandList, shadowPso, rootSignature, g_scene);
+            commandList->EndEvent();
+            EndCommandList();
+            WaitForCompletionOfCommandList();  // Wait for ShadowPass to complete
+
             //BasePass=======================================
             // 使用StandardPBR Pass 0（GBuffer填充）
             commandList->Reset(commandAllocator, gbufferPso);
@@ -593,14 +621,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             WaitForCompletionOfCommandList();  // Wait for BasePass to complete
 
             //LightPass=======================================
-            // 执行LightPass
+            // 执行LightPass（带Shadow Map）
             commandList->Reset(commandAllocator, lightPso);
             commandList->BeginEvent(0, L"LightPass", (UINT)(wcslen(L"LightPass") * sizeof(wchar_t)));
             BeginOffscreen(commandList);
             // 获取场景的3个离屏RT
             auto& offscreenRTs = g_scene->m_offscreenRTs;
+            // 传递深度缓冲和Shadow Map用于阴影计算
             lightPass->Render(commandList, lightPso, rootSignature,
-                offscreenRTs[0], offscreenRTs[1], offscreenRTs[2]);
+                offscreenRTs[0], offscreenRTs[1], offscreenRTs[2],
+                gDSRT,                          // 深度缓冲（用于重建世界坐标）
+                shadowPass->GetShadowMap());    // Shadow Map（用于阴影计算）
 
             commandList->EndEvent();
             EndCommandList();
