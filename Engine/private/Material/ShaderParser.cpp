@@ -405,12 +405,13 @@ std::string ShaderParser::GenerateHLSLCode(int passIndex) const {
             code << "    float4x4 ReservedMemory[1020];\n";  // 恢复原来的大小
             code << "};\n\n";
 
-            // 使用深度纹理代替位置纹理（t0-t4）
+            // 使用深度纹理代替位置纹理（t0-t5）
             code << "Texture2D BaseColor : register(t0);\n";
             code << "Texture2D Normal : register(t1);\n";
             code << "Texture2D Orm : register(t2);\n";
             code << "Texture2D DepthTexture : register(t3);\n";  // 深度纹理替代position
-            code << "TextureCube SkyCube : register(t4);\n\n";
+            code << "TextureCube SkyCube : register(t4);\n";
+            code << "Texture2D ShadowMap : register(t5);\n\n";  // LightPass输出的阴影图
 
             // 使用screen.hlsl的采样器
             code << "SamplerState gSamPointWrap : register(s0);\n";

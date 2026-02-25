@@ -262,8 +262,10 @@ Shader "Screen"
             // 检查是否是有效像素
             if (depth < 1.0)
             {
-                // 直接光照 + 间接光照
-                finalColor = directLighting * 6.0 + ambient;
+                // 采样阴影图（从LightPass输出）
+                float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
+                // 直接光照 * 阴影 + 间接光照
+                finalColor = directLighting * shadow * 6.0 + ambient;
                 alpha = 1.0;
             }
             else

@@ -22,6 +22,7 @@ Texture2D Normal : register(t1);
 Texture2D Orm : register(t2);
 Texture2D DepthTexture : register(t3);
 TextureCube SkyCube : register(t4);
+Texture2D ShadowMap : register(t5);  // LightPass输出的阴影图
 
 SamplerState gSamPointWrap : register(s0);
 SamplerState gSamPointClamp : register(s1);
@@ -183,7 +184,9 @@ SamplerState gSamAnisotropicClamp : register(s5);
             // 检查是否是有效像素
             if (depth < 1.0)
             {
-                finalColor = directLighting * 6.0 ;//+ ambient;
+                // 采样阴影图
+                float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
+                finalColor = directLighting * shadow * 6.0 + ambient;
             }
             else
             {

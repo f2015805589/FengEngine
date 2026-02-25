@@ -47,12 +47,9 @@ cbuffer DefaultVertexCB : register(b0)
     float2 _Padding4; // 154-155
 };
 
-// GBuffer纹理
-Texture2D g_ColorBuffer : register(t0);
-Texture2D g_NormalBuffer : register(t1);
-Texture2D g_MetallicRoughnessBuffer : register(t2);
-Texture2D g_DepthBuffer : register(t3);  // 深度缓冲（用于重建世界坐标）
-Texture2D g_ShadowMap : register(t4);    // Shadow Map
+// 输入纹理
+Texture2D g_DepthBuffer : register(t0);  // 深度缓冲（用于重建世界坐标）
+Texture2D g_ShadowMap : register(t1);    // Shadow Map
 
 // 采样器
 SamplerState g_Sampler : register(s0);
@@ -78,7 +75,135 @@ float3 ReconstructWorldPosition(float2 uv, float depth)
     return worldPos.xyz;
 }
 
-// 计算阴影因子（PCF软阴影）
+// PCSS参数
+static const float SHADOW_MAP_SIZE = 2048.0f;
+static const float LIGHT_SIZE = 0.02f;  // 光源大小（控制软阴影范围）
+static const int BLOCKER_SEARCH_SAMPLES = 16;
+static const int PCF_SAMPLES = 25;
+
+// Poisson Disk采样点（用于随机采样）
+static const float2 poissonDisk[25] = {
+    float2(-0.978698, -0.0884121),
+    float2(-0.841121, 0.521165),
+    float2(-0.71746, -0.50322),
+    float2(-0.702933, 0.903134),
+    float2(-0.663198, 0.15482),
+    float2(-0.495102, -0.232887),
+    float2(-0.364238, -0.961791),
+    float2(-0.345866, -0.564379),
+    float2(-0.325663, 0.64037),
+    float2(-0.182714, 0.321329),
+    float2(-0.142613, -0.0227363),
+    float2(-0.0564287, -0.36729),
+    float2(-0.0185858, 0.918882),
+    float2(0.0381787, -0.728996),
+    float2(0.16599, 0.093112),
+    float2(0.253639, 0.719535),
+    float2(0.369549, -0.655019),
+    float2(0.423627, 0.429975),
+    float2(0.530747, -0.364971),
+    float2(0.566027, -0.940489),
+    float2(0.639332, 0.0284127),
+    float2(0.652089, 0.669668),
+    float2(0.773797, 0.345012),
+    float2(0.968871, 0.840449),
+    float2(0.991882, -0.657338)
+};
+
+// 步骤1: 搜索遮挡物平均深度
+float FindBlockerDepth(float2 shadowUV, float receiverDepth, float searchRadius)
+{
+    float blockerSum = 0.0f;
+    int blockerCount = 0;
+    float2 texelSize = 1.0f / SHADOW_MAP_SIZE;
+    float bias = 0.0005f;  // 减小bias
+
+    for (int i = 0; i < BLOCKER_SEARCH_SAMPLES; ++i)
+    {
+        float2 offset = poissonDisk[i] * searchRadius * texelSize;
+        float shadowMapDepth = g_ShadowMap.Sample(g_Sampler, shadowUV + offset).r;
+
+        if (shadowMapDepth < receiverDepth - bias)
+        {
+            blockerSum += shadowMapDepth;
+            blockerCount++;
+        }
+    }
+
+    if (blockerCount == 0)
+        return -1.0f;  // 没有遮挡物
+
+    return blockerSum / float(blockerCount);
+}
+
+// 步骤2: 根据遮挡物深度计算半影大小
+float EstimatePenumbraSize(float receiverDepth, float blockerDepth)
+{
+    // 半影大小 = lightSize * (receiver - blocker) / blocker
+    return LIGHT_SIZE * (receiverDepth - blockerDepth) / blockerDepth;
+}
+
+// 步骤3: PCF滤波
+float PCF_Filter(float2 shadowUV, float receiverDepth, float filterRadius)
+{
+    float shadow = 0.0f;
+    float2 texelSize = 1.0f / SHADOW_MAP_SIZE;
+    float bias = 0.0005f;  // 减小bias
+
+    for (int i = 0; i < PCF_SAMPLES; ++i)
+    {
+        float2 offset = poissonDisk[i] * filterRadius * texelSize;
+        float shadowMapDepth = g_ShadowMap.Sample(g_Sampler, shadowUV + offset).r;
+        shadow += (receiverDepth - bias > shadowMapDepth) ? 0.0f : 1.0f;
+    }
+
+    return shadow / float(PCF_SAMPLES);
+}
+
+// PCSS阴影计算
+float CalculateShadowPCSS(float3 positionWS)
+{
+    // 1. 将世界坐标变换到光源裁剪空间
+    float4 positionLS = mul(LightViewProjectionMatrix, float4(positionWS, 1.0f));
+
+    // 2. 透视除法，得到NDC坐标
+    float3 projCoords = positionLS.xyz / positionLS.w;
+
+    // 3. 将NDC坐标从[-1,1]映射到[0,1]（用于纹理采样）
+    float2 shadowUV;
+    shadowUV.x = projCoords.x * 0.5f + 0.5f;
+    shadowUV.y = -projCoords.y * 0.5f + 0.5f;  // Y轴翻转
+
+    // 4. 当前片元的深度（在光源空间）
+    float receiverDepth = projCoords.z;
+
+    // 5. 边界检查
+    if (shadowUV.x < 0.0f || shadowUV.x > 1.0f ||
+        shadowUV.y < 0.0f || shadowUV.y > 1.0f ||
+        receiverDepth < 0.0f || receiverDepth > 1.0f)
+    {
+        return 1.0f;
+    }
+
+    // 6. PCSS步骤1: 搜索遮挡物
+    float searchRadius = LIGHT_SIZE * receiverDepth;  // 搜索半径随深度增加
+    float blockerDepth = FindBlockerDepth(shadowUV, receiverDepth, searchRadius * 20.0f);
+
+    // 没有遮挡物，完全被照亮
+    if (blockerDepth < 0.0f)
+        return 1.0f;
+
+    // 7. PCSS步骤2: 计算半影大小
+    float penumbraSize = EstimatePenumbraSize(receiverDepth, blockerDepth);
+
+    // 8. PCSS步骤3: PCF滤波
+    float filterRadius = penumbraSize * 30.0f;  // 放大滤波半径
+    filterRadius = clamp(filterRadius, 1.0f, 15.0f);  // 限制范围
+
+    return PCF_Filter(shadowUV, receiverDepth, filterRadius);
+}
+
+// 计算阴影因子（PCF软阴影 - 保留作为备选）
 float CalculateShadow(float3 positionWS)
 {
     // 1. 将世界坐标变换到光源裁剪空间
@@ -129,55 +254,21 @@ float CalculateShadow(float3 positionWS)
     return shadow;
 }
 
-// 光照计算函数
-float3 CalculateLighting(float3 albedo, float3 normal, float metallic, float roughness,
-                         float3 positionWS, float3 viewDir, float3 lightDir, float3 lightColor)
-{
-    // 漫反射项
-    float NdotL = max(dot(normal, lightDir), 0.0f);
-    float3 diffuse = albedo * lightColor * NdotL;
-
-    // 高光项 (简化版)
-    float3 halfDir = normalize(viewDir + lightDir);
-    float NdotH = max(dot(normal, halfDir), 0.0f);
-    float specularPower = roughness > 0.0f ? 1.0f / (roughness * roughness) : 1000.0f;
-    float3 specular = lightColor * pow(NdotH, specularPower) * metallic;
-
-    return diffuse + specular;
-}
-
 float4 LightPS(VSOut inPSInput) : SV_TARGET
 {
     // 从GBuffer采样数据
-    float4 albedo = g_ColorBuffer.Sample(g_Sampler, inPSInput.texcoord);
-    float4 normal = g_NormalBuffer.Sample(g_Sampler, inPSInput.texcoord);
-    float4 mr = g_MetallicRoughnessBuffer.Sample(g_Sampler, inPSInput.texcoord);
     float depth = g_DepthBuffer.Sample(g_Sampler, inPSInput.texcoord).r;
 
-    // 解包数据
-    float3 baseColor = albedo.rgb;
-    float3 normalWS = normalize(normal.xyz);
-    float metallic = mr.r;
-    float roughness = mr.g;
+    // 跳过天空（深度为1）
+    if (depth >= 1.0f)
+        return float4(1.0f, 1.0f, 1.0f, 1.0f);
 
     // 从深度重建世界空间位置
     float3 positionWS = ReconstructWorldPosition(inPSInput.texcoord, depth);
 
-    // 计算视线方向
-    float3 viewDir = normalize(CameraPositionWS - positionWS);
+    // 计算PCSS阴影
+    float shadow = CalculateShadowPCSS(positionWS);
 
-    // 计算光照方向（LightDirection是从表面指向光源）
-    float3 lightDir = normalize(-LightDirection);
-
-    // 简单光照计算
-    float NdotL = max(dot(normalWS, lightDir), 0.0);
-
-    // 计算阴影
-    float shadow = CalculateShadow(positionWS);
-
-    // 最终光照 = NdotL * 阴影因子
-    float finalLight = NdotL * shadow;
-
-    // 输出光照强度（带阴影）
-    return float4(finalLight, finalLight, finalLight, 1.0f);
+    // 输出阴影因子
+    return float4(shadow, shadow, shadow, 1.0f);
 }

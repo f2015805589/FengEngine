@@ -27,8 +27,8 @@ public:
         ID3D12Resource* rt1,    // 离屏RT1 (Normal)
         ID3D12Resource* rt2,    // 离屏RT2 (ORM)
         ID3D12Resource* depthBuffer,  // 深度缓冲（用于位置重构）
-        ComPtr<ID3D12Resource> skyTexture
-
+        ComPtr<ID3D12Resource> skyTexture,
+        ID3D12Resource* shadowMap  // LightPass输出的阴影图
     );
 
     ID3D12PipelineState* CreatePSO(ID3D12RootSignature* rootSig,
@@ -49,7 +49,8 @@ private:
         ID3D12Resource* rt1,
         ID3D12Resource* rt2,
         ID3D12Resource* depthBuffer,  // 深度缓冲
-        ComPtr<ID3D12Resource> skyTexture);
+        ComPtr<ID3D12Resource> skyTexture,
+        ID3D12Resource* shadowMap);  // 阴影图
 
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     UINT m_srvDescriptorSize = 0;  // SRV��������С

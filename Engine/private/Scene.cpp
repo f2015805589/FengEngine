@@ -668,6 +668,20 @@ void Scene::Update(float deltaTime) {
     if (m_mappedConstantBuffer) {
         memcpy(m_mappedConstantBuffer, &m_cbData, sizeof(SceneCBData));
     }
+
+    // 更新所有Actor的CB（确保在任何Pass之前CB已准备好）
+    for (Actor* actor : m_actors) {
+        if (!actor) continue;
+        actor->UpdateConstantBuffer(viewMatrix, projectionMatrix,
+            normalizedLightDir, m_camera.GetPosition(),
+            m_skylightIntensity, m_skylightColor,
+            invProjMatrix, invViewMatrix,
+            lightViewProjMatrix, m_previousViewProjectionMatrix,
+            m_jitterOffset, m_previousJitterOffset,
+            m_viewportWidth, m_viewportHeight,
+            m_camera.GetNearPlane(), m_camera.GetFarPlane(),
+            currentViewProjMatrix);
+    }
 }
 
 // TAA: 更新上一帧的 ViewProjection 矩阵（在帧结束时调用）
@@ -878,6 +892,11 @@ void Scene::HandleInput(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 // 计算平行光的LiSPSM矩阵（Light Space Perspective Shadow Maps）
 // 参考论文: "Light Space Perspective Shadow Maps" by Wimmer et al.
+//
+// LiSPSM核心思想：
+// 1. 构建一个虚拟相机，其Y轴指向光源，Z轴垂直于光线且在光线-视线平面内
+// 2. 用这个虚拟相机的透视投影对场景进行warp，使近处物体获得更高分辨率
+// 3. 在warp后的空间中，从光源方向进行正交投影生成阴影图
 DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir,
                                                 const DirectX::XMMATRIX& cameraView,
                                                 const DirectX::XMMATRIX& cameraProj) {
@@ -889,52 +908,47 @@ DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir
 
     // 相机位置和方向（从逆View矩阵提取）
     XMVECTOR camPos = invCameraView.r[3];  // 相机世界位置
-    XMVECTOR camDir = XMVector3Normalize(invCameraView.r[2]);  // 相机前向（Z轴）
-    XMVECTOR camUp = XMVector3Normalize(invCameraView.r[1]);   // 相机上向（Y轴）
+    XMVECTOR camDir = XMVector3Normalize(invCameraView.r[2]);  // 相机前向（-Z轴在view空间，但这里是世界空间的前向）
+    XMVECTOR camUp = XMVector3Normalize(invCameraView.r[1]);   // 相机上向
 
-    // 归一化光源方向（lightDir是从表面指向光源，L是光线传播方向）
-    XMVECTOR L = XMVector3Normalize(-lightDir);
+    // 归一化光源方向（lightDir是从表面指向光源）
+    XMVECTOR L = XMVector3Normalize(lightDir);  // 指向光源的方向
 
     // ========== 2. 计算光线与视线的夹角 ==========
-    float cosGamma = XMVectorGetX(XMVector3Dot(camDir, L));
+    float cosGamma = fabsf(XMVectorGetX(XMVector3Dot(camDir, L)));
     float sinGamma = sqrtf(1.0f - cosGamma * cosGamma);
 
     // 如果光线几乎平行于视线方向，退化为标准正交投影
     const float LISPSM_THRESHOLD = 0.1f;
     if (sinGamma < LISPSM_THRESHOLD) {
-        // 退化情况：使用标准正交投影
         return CalculateStandardShadowMatrix(lightDir);
     }
 
     // ========== 3. 构建LiSPSM坐标系 ==========
-    // LiSPSM的核心思想：
-    // - Y轴：指向光源方向（用于透视warp）
-    // - Z轴：垂直于光线，且在光线-视线平面内（视线方向分量）
-    // - X轴：由Y和Z叉乘得到
+    // Y轴：指向光源方向（用于透视warp，保证定向光不会变成点光源）
+    XMVECTOR lispY = L;
 
-    // Y轴：指向光源
-    XMVECTOR lispY = XMVector3Normalize(-L);  // 指向光源
+    // Z轴：垂直于光线，且在光线-视线平面内
+    // 计算：camDir - (camDir · L) * L，即camDir在垂直于L平面上的投影
+    float dotCamL = XMVectorGetX(XMVector3Dot(camDir, L));
+    XMVECTOR lispZ = XMVectorSubtract(camDir, XMVectorScale(L, dotCamL));
+    float lispZLen = XMVectorGetX(XMVector3Length(lispZ));
 
-    // Z轴：在光线-视线平面内，垂直于光线
-    // 先计算视线在光线方向上的投影，然后减去得到垂直分量
-    XMVECTOR viewOnLight = XMVectorScale(L, XMVectorGetX(XMVector3Dot(camDir, L)));
-    XMVECTOR lispZ = XMVector3Normalize(XMVectorSubtract(camDir, viewOnLight));
-
-    // 如果Z轴接近零向量（视线与光线平行），使用相机up向量
-    if (XMVectorGetX(XMVector3Length(lispZ)) < 0.001f) {
-        viewOnLight = XMVectorScale(L, XMVectorGetX(XMVector3Dot(camUp, L)));
-        lispZ = XMVector3Normalize(XMVectorSubtract(camUp, viewOnLight));
+    if (lispZLen < 0.001f) {
+        // 视线与光线平行，使用相机up向量
+        float dotUpL = XMVectorGetX(XMVector3Dot(camUp, L));
+        lispZ = XMVectorSubtract(camUp, XMVectorScale(L, dotUpL));
     }
+    lispZ = XMVector3Normalize(lispZ);
 
-    // X轴：Y × Z
+    // X轴：Y × Z（右手坐标系）
     XMVECTOR lispX = XMVector3Cross(lispY, lispZ);
     lispX = XMVector3Normalize(lispX);
 
-    // ========== 4. 收集场景包围盒（潜在阴影遮挡者PSC） ==========
+    // ========== 4. 收集场景包围盒（PSC - Potential Shadow Casters） ==========
     XMFLOAT3 minBounds(FLT_MAX, FLT_MAX, FLT_MAX);
     XMFLOAT3 maxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
-    // 从所有Actor收集包围盒
     for (Actor* actor : m_actors) {
         if (!actor || !actor->GetMesh()) continue;
         StaticMeshComponent* mesh = actor->GetMesh();
@@ -959,48 +973,26 @@ DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir
         }
     }
 
-    // 如果没有Actor，使用静态mesh
-    if (m_actors.empty() && m_staticMesh.mVertexData && m_staticMesh.mVertexCount > 0) {
-        for (int i = 0; i < m_staticMesh.mVertexCount; ++i) {
-            minBounds.x = min(minBounds.x, m_staticMesh.mVertexData[i].mPosition[0]);
-            minBounds.y = min(minBounds.y, m_staticMesh.mVertexData[i].mPosition[1]);
-            minBounds.z = min(minBounds.z, m_staticMesh.mVertexData[i].mPosition[2]);
-            maxBounds.x = max(maxBounds.x, m_staticMesh.mVertexData[i].mPosition[0]);
-            maxBounds.y = max(maxBounds.y, m_staticMesh.mVertexData[i].mPosition[1]);
-            maxBounds.z = max(maxBounds.z, m_staticMesh.mVertexData[i].mPosition[2]);
-        }
-    }
-
-    // 默认包围盒
     if (minBounds.x == FLT_MAX) {
         minBounds = XMFLOAT3(-50.0f, -50.0f, -50.0f);
         maxBounds = XMFLOAT3(50.0f, 50.0f, 50.0f);
     }
 
     // ========== 5. 构建LiSPSM View矩阵 ==========
-    // 场景中心
-    XMVECTOR sceneCenter = XMVectorSet(
-        (minBounds.x + maxBounds.x) * 0.5f,
-        (minBounds.y + maxBounds.y) * 0.5f,
-        (minBounds.z + maxBounds.z) * 0.5f,
-        1.0f
-    );
-
-    // 构建LiSPSM View矩阵（从世界空间到LiSPSM空间）
-    // 这是一个正交基变换矩阵
-    XMMATRIX lispView;
-    lispView.r[0] = XMVectorSetW(lispX, 0.0f);
-    lispView.r[1] = XMVectorSetW(lispY, 0.0f);
-    lispView.r[2] = XMVectorSetW(lispZ, 0.0f);
-    lispView.r[3] = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
-    lispView = XMMatrixTranspose(lispView);  // 转置得到正确的变换矩阵
+    // 这是一个旋转矩阵，将世界空间转换到LiSPSM空间
+    // LiSPSM空间：X=lispX, Y=lispY(光源方向), Z=lispZ
+    XMMATRIX lispRotation = XMMatrixIdentity();
+    lispRotation.r[0] = XMVectorSetW(lispX, 0.0f);
+    lispRotation.r[1] = XMVectorSetW(lispY, 0.0f);
+    lispRotation.r[2] = XMVectorSetW(lispZ, 0.0f);
+    lispRotation.r[3] = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
+    lispRotation = XMMatrixTranspose(lispRotation);  // 转置得到正确的变换
 
     // ========== 6. 在LiSPSM空间计算包围盒 ==========
     float lispMinX = FLT_MAX, lispMaxX = -FLT_MAX;
     float lispMinY = FLT_MAX, lispMaxY = -FLT_MAX;
     float lispMinZ = FLT_MAX, lispMaxZ = -FLT_MAX;
 
-    // 变换包围盒8个角点到LiSPSM空间
     XMFLOAT3 corners[8] = {
         {minBounds.x, minBounds.y, minBounds.z},
         {maxBounds.x, minBounds.y, minBounds.z},
@@ -1014,7 +1006,7 @@ DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir
 
     for (int i = 0; i < 8; ++i) {
         XMVECTOR corner = XMVectorSet(corners[i].x, corners[i].y, corners[i].z, 1.0f);
-        XMVECTOR lispCorner = XMVector3Transform(corner, lispView);
+        XMVECTOR lispCorner = XMVector3Transform(corner, lispRotation);
 
         lispMinX = min(lispMinX, XMVectorGetX(lispCorner));
         lispMaxX = max(lispMaxX, XMVectorGetX(lispCorner));
@@ -1024,71 +1016,95 @@ DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir
         lispMaxZ = max(lispMaxZ, XMVectorGetZ(lispCorner));
     }
 
-    // 同时变换相机位置到LiSPSM空间
-    XMVECTOR camPosLisp = XMVector3Transform(camPos, lispView);
-    float camY = XMVectorGetY(camPosLisp);
+    // 变换相机位置到LiSPSM空间
+    XMVECTOR camPosLisp = XMVector3Transform(camPos, lispRotation);
+    float camYLisp = XMVectorGetY(camPosLisp);
 
-    // ========== 7. 计算最优n值（控制透视扭曲程度） ==========
-    // 根据LiSPSM论文，当视线与光线垂直时：n_opt = (near + sqrt(near * far)) / sin(gamma)
-    // 这里使用简化版本
+    // ========== 7. 计算最优n值 ==========
+    // 根据LiSPSM论文：n_opt = (near + sqrt(near * far)) / sin(gamma)
     float nearPlane = m_camera.GetNearPlane();
     float farPlane = m_camera.GetFarPlane();
 
-    // 计算场景在Y方向的范围（光线方向）
-    float sceneDepth = lispMaxY - lispMinY;
-    if (sceneDepth < 0.1f) sceneDepth = 100.0f;
-
-    // 最优n值计算（基于论文公式的简化版）
     float n_opt = (nearPlane + sqrtf(nearPlane * farPlane)) / sinGamma;
 
-    // 限制n值范围，避免极端情况
-    n_opt = max(n_opt, 1.0f);
-    n_opt = min(n_opt, sceneDepth * 2.0f);
+    // 场景在Y方向（光源方向）的深度
+    float sceneDepthY = lispMaxY - lispMinY;
+    if (sceneDepthY < 1.0f) sceneDepthY = 100.0f;
 
-    // ========== 8. 构建LiSPSM透视矩阵P ==========
-    // 视点位置：在场景下方n_opt距离处
+    // 限制n值
+    n_opt = max(n_opt, 0.1f);
+    n_opt = min(n_opt, sceneDepthY * 10.0f);
+
+    // ========== 8. 构建透视warp矩阵P ==========
+    // 虚拟视点位置：在场景下方（Y方向最小值再减去n）
     float eyeY = lispMinY - n_opt;
 
-    // 透视投影的near和far平面
-    float pNear = n_opt;  // near = n
-    float pFar = n_opt + sceneDepth + 10.0f;  // far = n + 场景深度
+    // 透视投影的near/far
+    float pNear = n_opt;
+    float pFar = n_opt + sceneDepthY + 10.0f;
 
-    // 视场范围（在near平面上）
-    float halfWidth = (lispMaxX - lispMinX) * 0.5f + 1.0f;
-    float halfHeight = (lispMaxZ - lispMinZ) * 0.5f + 1.0f;
-
-    // 构建透视投影矩阵
-    // 使用off-center透视投影，因为场景可能不在视锥体中心
+    // 场景中心
     float centerX = (lispMinX + lispMaxX) * 0.5f;
     float centerZ = (lispMinZ + lispMaxZ) * 0.5f;
 
-    // 标准透视投影（假设视点在原点，看向+Y方向）
-    XMMATRIX lispPersp = XMMatrixPerspectiveLH(
-        halfWidth * 2.0f,
-        halfHeight * 2.0f,
-        pNear,
-        pFar
+    // 平移到虚拟视点
+    XMMATRIX translateToEye = XMMatrixTranslation(-centerX, -eyeY, -centerZ);
+
+    // 透视投影（沿Y轴看）
+    // 由于DirectX的透视投影是沿Z轴的，我们需要交换Y和Z
+    // 先做一个旋转，把Y轴变成Z轴
+    XMMATRIX swapYZ = XMMatrixIdentity();
+    swapYZ.r[1] = XMVectorSet(0, 0, 1, 0);  // Y -> Z
+    swapYZ.r[2] = XMVectorSet(0, 1, 0, 0);  // Z -> Y
+
+    float halfWidth = (lispMaxX - lispMinX) * 0.5f + 1.0f;
+    float halfHeight = (lispMaxZ - lispMinZ) * 0.5f + 1.0f;
+
+    XMMATRIX perspWarp = XMMatrixPerspectiveLH(halfWidth * 2.0f, halfHeight * 2.0f, pNear, pFar);
+
+    // 组合warp变换：Rotation -> Translate -> SwapYZ -> Perspective
+    XMMATRIX warpMatrix = XMMatrixMultiply(lispRotation, translateToEye);
+    warpMatrix = XMMatrixMultiply(warpMatrix, swapYZ);
+    warpMatrix = XMMatrixMultiply(warpMatrix, perspWarp);
+
+    // ========== 9. 在warp后的空间做正交投影 ==========
+    // warp后场景已经被透视变换，现在需要从光源方向做正交投影
+    // 由于Y轴是光源方向，warp后光源方向变成了Z轴（因为swapYZ）
+    // 所以直接用正交投影即可
+
+    // 计算warp后的包围盒
+    float warpMinX = FLT_MAX, warpMaxX = -FLT_MAX;
+    float warpMinY = FLT_MAX, warpMaxY = -FLT_MAX;
+    float warpMinZ = FLT_MAX, warpMaxZ = -FLT_MAX;
+
+    for (int i = 0; i < 8; ++i) {
+        XMVECTOR corner = XMVectorSet(corners[i].x, corners[i].y, corners[i].z, 1.0f);
+        XMVECTOR warpCorner = XMVector4Transform(corner, warpMatrix);
+        // 透视除法
+        float w = XMVectorGetW(warpCorner);
+        if (fabsf(w) > 0.0001f) {
+            warpCorner = XMVectorScale(warpCorner, 1.0f / w);
+        }
+
+        warpMinX = min(warpMinX, XMVectorGetX(warpCorner));
+        warpMaxX = max(warpMaxX, XMVectorGetX(warpCorner));
+        warpMinY = min(warpMinY, XMVectorGetY(warpCorner));
+        warpMaxY = max(warpMaxY, XMVectorGetY(warpCorner));
+        warpMinZ = min(warpMinZ, XMVectorGetZ(warpCorner));
+        warpMaxZ = max(warpMaxZ, XMVectorGetZ(warpCorner));
+    }
+
+    // 正交投影，将warp后的空间映射到[-1,1]
+    XMMATRIX orthoProj = XMMatrixOrthographicOffCenterLH(
+        warpMinX, warpMaxX,
+        warpMinY, warpMaxY,
+        warpMinZ - 10.0f, warpMaxZ + 10.0f
     );
 
-    // 平移矩阵：将视点移动到正确位置
-    XMMATRIX lispTranslate = XMMatrixTranslation(-centerX, -eyeY, -centerZ);
+    // 最终矩阵 = warp + 正交投影
+    XMMATRIX finalMatrix = XMMatrixMultiply(warpMatrix, orthoProj);
 
-    // ========== 9. 构建最终的光源正交投影 ==========
-    // 在LiSPSM透视空间中，从光源方向进行正交投影
-    // 由于Y轴已经是光线方向，所以正交投影就是沿Y轴投影
-
-    // 组合变换：World -> LiSPSM View -> Translate -> Perspective
-    XMMATRIX lispMatrix = XMMatrixMultiply(lispView, lispTranslate);
-    lispMatrix = XMMatrixMultiply(lispMatrix, lispPersp);
-
-    // 最后需要一个正交投影来生成最终的阴影图
-    // 在透视变换后的空间中，场景被warp到一个新的范围
-    // 我们需要用正交投影将其映射到[-1,1]
-
-    // 简化处理：直接使用组合后的透视矩阵作为阴影矩阵
-    // 这样在阴影图中，近处物体会有更高的分辨率
-
-    return lispMatrix;
+    return finalMatrix;
 }
 
 // 辅助函数：计算标准正交阴影矩阵（用于退化情况）

@@ -16,7 +16,7 @@ bool ScreenPass::Initialize(int viewportWidth, int viewportHeight) {
 void ScreenPass::CreateSRVHeap() {
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvHeapDesc.NumDescriptors = 5;
+    srvHeapDesc.NumDescriptors = 6;  // RT0, RT1, RT2, Depth, SkyCube, ShadowMap
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     HRESULT hr = gD3D12Device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap));
@@ -28,7 +28,8 @@ void ScreenPass::CreateSRVHeap() {
 
 void ScreenPass::CreateInputSRVs(ID3D12GraphicsCommandList* commandList,
     ID3D12Resource* rt0, ID3D12Resource* rt1, ID3D12Resource* rt2,
-    ID3D12Resource* depthBuffer, ComPtr<ID3D12Resource> skyTexture) {
+    ID3D12Resource* depthBuffer, ComPtr<ID3D12Resource> skyTexture,
+    ID3D12Resource* shadowMap) {
     CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
@@ -37,38 +38,49 @@ void ScreenPass::CreateInputSRVs(ID3D12GraphicsCommandList* commandList,
     srvDesc.Texture2D.MipLevels = 1;
     srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-    // RT0 (Albedo)
+    // t0: RT0 (Albedo)
     srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     gD3D12Device->CreateShaderResourceView(rt0, &srvDesc, srvHandle);
     srvHandle.Offset(1, m_srvDescriptorSize);
 
-    // RT1 (Normal)
+    // t1: RT1 (Normal)
     gD3D12Device->CreateShaderResourceView(rt1, &srvDesc, srvHandle);
     srvHandle.Offset(1, m_srvDescriptorSize);
 
-    // RT2 (ORM)
+    // t2: RT2 (ORM)
     gD3D12Device->CreateShaderResourceView(rt2, &srvDesc, srvHandle);
     srvHandle.Offset(1, m_srvDescriptorSize);
 
-    // Depth buffer
+    // t3: Depth buffer
     srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
     gD3D12Device->CreateShaderResourceView(depthBuffer, &srvDesc, srvHandle);
     srvHandle.Offset(1, m_srvDescriptorSize);
 
-    // SkyCube
+    // t4: SkyCube
     srvDesc.Format = skyTexture->GetDesc().Format;
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
     srvDesc.TextureCube.MostDetailedMip = 0;
     srvDesc.TextureCube.MipLevels = skyTexture->GetDesc().MipLevels;
     srvDesc.TextureCube.ResourceMinLODClamp = 0.0f;
     gD3D12Device->CreateShaderResourceView(skyTexture.Get(), &srvDesc, srvHandle);
+    srvHandle.Offset(1, m_srvDescriptorSize);
+
+    // t5: ShadowMap (LightPass输出)
+    if (shadowMap) {
+        srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        gD3D12Device->CreateShaderResourceView(shadowMap, &srvDesc, srvHandle);
+    }
 }
 
 void ScreenPass::Render(ID3D12GraphicsCommandList* cmdList,
     ID3D12PipelineState* pso, ID3D12RootSignature* rootSig,
     ID3D12Resource* rt0, ID3D12Resource* rt1, ID3D12Resource* rt2,
-    ID3D12Resource* depthBuffer, ComPtr<ID3D12Resource> skyTexture) {
-    CreateInputSRVs(cmdList, rt0, rt1, rt2, depthBuffer, skyTexture);
+    ID3D12Resource* depthBuffer, ComPtr<ID3D12Resource> skyTexture,
+    ID3D12Resource* shadowMap) {
+    CreateInputSRVs(cmdList, rt0, rt1, rt2, depthBuffer, skyTexture, shadowMap);
 
     cmdList->SetGraphicsRootSignature(rootSig);
     cmdList->SetPipelineState(pso);

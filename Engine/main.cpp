@@ -12,7 +12,6 @@
 #include "public/ScreenPass.h"
 #include "public/SkyPass.h"
 #include "public/TaaPass.h"
-#include "public/ShadowPass.h"  // Shadow Map Pass
 #include "public/Material.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/MaterialEditorPanel.h"
@@ -182,18 +181,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     // 重新开始用于后续初始化
     commandList->Reset(commandAllocator, nullptr);
 
-    LightPass* lightPass = new LightPass(viewportWidth, viewportHeight);
+    LightPass* lightPass = new LightPass(viewportWidth, viewportHeight, 2048);  // 包含2048x2048 Shadow Map
     lightPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
     if (!lightPass->Initialize(commandList)) {
         MessageBox(NULL, L"LightPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
-        return -1;
-    }
-
-    // 初始化ShadowPass（Shadow Map渲染）
-    ShadowPass* shadowPass = new ShadowPass(2048);  // 2048x2048 Shadow Map
-    shadowPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
-    if (!shadowPass->Initialize()) {
-        MessageBox(NULL, L"ShadowPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
     }
 
@@ -251,7 +242,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     D3D12_SHADER_BYTECODE shadowVS, shadowPS;
     CreateShaderFromFile((GetEnginePath() + L"Shader/shadowdepth.hlsl").c_str(), "ShadowDepthVS", "vs_5_0", &shadowVS);
     CreateShaderFromFile((GetEnginePath() + L"Shader/shadowdepth.hlsl").c_str(), "ShadowDepthPS", "ps_5_0", &shadowPS);
-    ID3D12PipelineState* shadowPso = shadowPass->CreateShadowPSO(rootSignature, shadowVS, shadowPS);
+    ID3D12PipelineState* shadowPso = lightPass->CreateShadowPSO(rootSignature, shadowVS, shadowPS);
     if (!shadowPso) {
         MessageBox(NULL, L"创建ShadowPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
@@ -599,15 +590,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             g_scene->Update(deltaTime);  // 更新Scene（计算LiSPSM矩阵）
 
-            //ShadowPass=======================================
-            // 从光源视角渲染场景深度到Shadow Map
-            commandList->Reset(commandAllocator, shadowPso);
-            commandList->BeginEvent(0, L"ShadowPass", (UINT)(wcslen(L"ShadowPass") * sizeof(wchar_t)));
-            shadowPass->Render(commandList, shadowPso, rootSignature, g_scene);
-            commandList->EndEvent();
-            EndCommandList();
-            WaitForCompletionOfCommandList();  // Wait for ShadowPass to complete
-
             //BasePass=======================================
             // 使用StandardPBR Pass 0（GBuffer填充）
             commandList->Reset(commandAllocator, gbufferPso);
@@ -621,18 +603,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             WaitForCompletionOfCommandList();  // Wait for BasePass to complete
 
             //LightPass=======================================
-            // 执行LightPass（带Shadow Map）
-            commandList->Reset(commandAllocator, lightPso);
+            // 执行LightPass（包含Shadow Map生成和光照计算）
+            commandList->Reset(commandAllocator, shadowPso);
             commandList->BeginEvent(0, L"LightPass", (UINT)(wcslen(L"LightPass") * sizeof(wchar_t)));
-            BeginOffscreen(commandList);
-            // 获取场景的3个离屏RT
-            auto& offscreenRTs = g_scene->m_offscreenRTs;
-            // 传递深度缓冲和Shadow Map用于阴影计算
-            lightPass->Render(commandList, lightPso, rootSignature,
-                offscreenRTs[0], offscreenRTs[1], offscreenRTs[2],
-                gDSRT,                          // 深度缓冲（用于重建世界坐标）
-                shadowPass->GetShadowMap());    // Shadow Map（用于阴影计算）
-
+            lightPass->RenderDirectLight(commandList, shadowPso, lightPso, rootSignature, g_scene, gDSRT);
             commandList->EndEvent();
             EndCommandList();
             WaitForCompletionOfCommandList();  // Wait for LightPass to complete
@@ -698,11 +672,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             auto& sceneRTs = g_scene->m_offscreenRTs;
             ComPtr<ID3D12Resource> skyTexture = g_scene->ReturnSkyCube();
-            // 渲染（使用深度缓冲代替Position RT）
+            // 渲染（使用深度缓冲代替Position RT，传入LightPass的阴影图）
             screenPass->Render(commandList, deferredLightingPso, rootSignature,
                 sceneRTs[0], sceneRTs[1], sceneRTs[2],  // 3个GBuffer RT
                 gDSRT,  // 深度缓冲用于位置重构
-                skyTexture);
+                skyTexture,
+                lightPass->GetLightRT());  // LightPass输出的阴影图
 
             // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧和BeginRenderToSwapChain使用
             D3D12_RESOURCE_BARRIER depthBarrier = {};

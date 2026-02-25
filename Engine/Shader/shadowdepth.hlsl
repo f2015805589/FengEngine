@@ -44,7 +44,7 @@ VSOutput ShadowDepthVS(VertexInput input)
     // 1. 模型空间 -> 世界空间
     float4 positionWS = mul(ModelMatrix, float4(input.position.xyz, 1.0));
 
-    // 2. 世界空间 -> 光源裁剪空间（使用LiSPSM矩阵）
+    // 2. 世界空间 -> 光源裁剪空间
     output.position = mul(LightViewProjectionMatrix, positionWS);
 
     return output;

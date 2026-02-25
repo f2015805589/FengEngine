@@ -1,13 +1,17 @@
 // lightpass.cpp
 #include "public/LightPass.h"
+#include "public/Scene.h"
+#include "public/Actor.h"
+#include "public/StaticMeshComponent.h"
 #include <DirectXMath.h>
 #include <stdexcept>
 #include <d3dx12.h>
 
 using namespace DirectX;
 
-LightPass::LightPass(int width, int height)
-    : m_width(width), m_height(height), m_rtvDescriptorSize(0), m_srvDescriptorSize(0) {
+LightPass::LightPass(int width, int height, int shadowMapSize)
+    : m_width(width), m_height(height), m_shadowMapSize(shadowMapSize)
+    , m_rtvDescriptorSize(0), m_srvDescriptorSize(0), m_dsvDescriptorSize(0) {
 }
 
 LightPass::~LightPass() {
@@ -15,16 +19,25 @@ LightPass::~LightPass() {
 }
 
 bool LightPass::Initialize(ID3D12GraphicsCommandList* commandList) {
-    CreateSRVHeap();
-    CreateLightRT(commandList);
-    return true;
+    try {
+        CreateSRVHeap();
+        CreateLightRT(commandList);
+        CreateShadowMapResource();
+        return true;
+    }
+    catch (const std::exception& e) {
+        OutputDebugStringA("LightPass::Initialize failed: ");
+        OutputDebugStringA(e.what());
+        OutputDebugStringA("\n");
+        return false;
+    }
 }
 
 void LightPass::CreateSRVHeap() {
-    // 创建描述符堆用于5个SRV（3个GBuffer + 深度 + ShadowMap）
+    // 创建描述符堆用于2个SRV（Depth + ShadowMap）
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvHeapDesc.NumDescriptors = 5;  // t0-t4: Albedo, Normal, ORM, Depth, ShadowMap
+    srvHeapDesc.NumDescriptors = 2;  // t0: Depth, t1: ShadowMap
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     HRESULT hr = gD3D12Device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap));
@@ -60,7 +73,7 @@ void LightPass::CreateLightRT(ID3D12GraphicsCommandList* commandList) {
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
         &texDesc,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,  // 初始状态为SRV，与Render函数一致
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         &clearValue,
         IID_PPV_ARGS(&m_lightRT)
     );
@@ -86,100 +99,185 @@ void LightPass::CreateLightRT(ID3D12GraphicsCommandList* commandList) {
     gD3D12Device->CreateRenderTargetView(m_lightRT.Get(), nullptr, rtvHandle);
 }
 
+void LightPass::CreateShadowMapResource() {
+    // 创建DSV描述符堆
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+    HRESULT hr = gD3D12Device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap));
+    if (FAILED(hr)) {
+        throw std::runtime_error("Failed to create LightPass DSV heap");
+    }
+
+    m_dsvDescriptorSize = gD3D12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
+    // 创建Shadow Map深度资源
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Alignment = 0;
+    texDesc.Width = m_shadowMapSize;
+    texDesc.Height = m_shadowMapSize;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.SampleDesc.Quality = 0;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+    D3D12_CLEAR_VALUE clearValue = {};
+    clearValue.Format = DXGI_FORMAT_D32_FLOAT;
+    clearValue.DepthStencil.Depth = 1.0f;
+    clearValue.DepthStencil.Stencil = 0;
+
+    D3D12_HEAP_PROPERTIES heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+
+    hr = gD3D12Device->CreateCommittedResource(
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        &clearValue,
+        IID_PPV_ARGS(&m_shadowMap)
+    );
+
+    if (FAILED(hr)) {
+        throw std::runtime_error("Failed to create Shadow Map resource");
+    }
+
+    m_shadowMap->SetName(L"LightPass_ShadowMap");
+
+    // 创建DSV
+    D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+    dsvDesc.Texture2D.MipSlice = 0;
+    dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+    gD3D12Device->CreateDepthStencilView(
+        m_shadowMap.Get(),
+        &dsvDesc,
+        m_dsvHeap->GetCPUDescriptorHandleForHeapStart()
+    );
+}
+
 void LightPass::CreateInputSRVs(ID3D12GraphicsCommandList* commandList,
-    ID3D12Resource* rt0,
-    ID3D12Resource* rt1,
-    ID3D12Resource* rt2,
-    ID3D12Resource* depthBuffer,
-    ID3D12Resource* shadowMap) {
+    ID3D12Resource* depthBuffer) {
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart());
 
-    // t0: Albedo (RT0)
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Texture2D.MipLevels = 1;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-
-    if (rt0) {
-        srvDesc.Format = rt0->GetDesc().Format;
-        gD3D12Device->CreateShaderResourceView(rt0, &srvDesc, srvHandle);
-    }
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t1: Normal (RT1)
-    if (rt1) {
-        srvDesc.Format = rt1->GetDesc().Format;
-        gD3D12Device->CreateShaderResourceView(rt1, &srvDesc, srvHandle);
-    }
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t2: MetallicRoughness (RT2)
-    if (rt2) {
-        srvDesc.Format = rt2->GetDesc().Format;
-        gD3D12Device->CreateShaderResourceView(rt2, &srvDesc, srvHandle);
-    }
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t3: Depth Buffer
+    // t0: Depth Buffer
     if (depthBuffer) {
         D3D12_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
         depthSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         depthSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         depthSrvDesc.Texture2D.MipLevels = 1;
         depthSrvDesc.Texture2D.MostDetailedMip = 0;
-        // 深度缓冲格式转换：D24_UNORM_S8_UINT -> R24_UNORM_X8_TYPELESS 或 D32_FLOAT -> R32_FLOAT
         DXGI_FORMAT depthFormat = depthBuffer->GetDesc().Format;
         if (depthFormat == DXGI_FORMAT_D24_UNORM_S8_UINT || depthFormat == DXGI_FORMAT_R24G8_TYPELESS) {
             depthSrvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
         } else if (depthFormat == DXGI_FORMAT_D32_FLOAT || depthFormat == DXGI_FORMAT_R32_TYPELESS) {
             depthSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
         } else {
-            depthSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;  // 默认
+            depthSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
         }
         gD3D12Device->CreateShaderResourceView(depthBuffer, &depthSrvDesc, srvHandle);
     }
     srvHandle.Offset(1, m_srvDescriptorSize);
 
-    // t4: Shadow Map
-    if (shadowMap) {
-        D3D12_SHADER_RESOURCE_VIEW_DESC shadowSrvDesc = {};
-        shadowSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        shadowSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        shadowSrvDesc.Texture2D.MipLevels = 1;
-        shadowSrvDesc.Texture2D.MostDetailedMip = 0;
-        // Shadow Map格式：R32_TYPELESS -> R32_FLOAT
-        DXGI_FORMAT shadowFormat = shadowMap->GetDesc().Format;
-        if (shadowFormat == DXGI_FORMAT_R32_TYPELESS) {
-            shadowSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-        } else if (shadowFormat == DXGI_FORMAT_D32_FLOAT) {
-            shadowSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
-        } else {
-            shadowSrvDesc.Format = shadowFormat;
-        }
-        gD3D12Device->CreateShaderResourceView(shadowMap, &shadowSrvDesc, srvHandle);
-    }
+    // t1: Shadow Map
+    D3D12_SHADER_RESOURCE_VIEW_DESC shadowSrvDesc = {};
+    shadowSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    shadowSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    shadowSrvDesc.Texture2D.MipLevels = 1;
+    shadowSrvDesc.Texture2D.MostDetailedMip = 0;
+    shadowSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    gD3D12Device->CreateShaderResourceView(m_shadowMap.Get(), &shadowSrvDesc, srvHandle);
 }
 
-// 新版本Render（带深度和Shadow Map）
-void LightPass::Render(ID3D12GraphicsCommandList* commandList,
+void LightPass::RenderShadowMap(ID3D12GraphicsCommandList* commandList,
     ID3D12PipelineState* pso,
     ID3D12RootSignature* rootSignature,
-    ID3D12Resource* rt0,
-    ID3D12Resource* rt1,
-    ID3D12Resource* rt2,
-    ID3D12Resource* depthBuffer,
-    ID3D12Resource* shadowMap) {
+    Scene* scene) {
 
-    // 为输入的RT创建SRV
-    CreateInputSRVs(commandList, rt0, rt1, rt2, depthBuffer, shadowMap);
+    // 设置视口和裁剪矩形
+    D3D12_VIEWPORT viewport = {};
+    viewport.TopLeftX = 0.0f;
+    viewport.TopLeftY = 0.0f;
+    viewport.Width = static_cast<float>(m_shadowMapSize);
+    viewport.Height = static_cast<float>(m_shadowMapSize);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    commandList->RSSetViewports(1, &viewport);
+
+    D3D12_RECT scissorRect = {};
+    scissorRect.left = 0;
+    scissorRect.top = 0;
+    scissorRect.right = m_shadowMapSize;
+    scissorRect.bottom = m_shadowMapSize;
+    commandList->RSSetScissorRects(1, &scissorRect);
+
+    // 清除深度缓冲
+    D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+    commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+    // 设置渲染目标（只有深度，无颜色）
+    commandList->OMSetRenderTargets(0, nullptr, FALSE, &dsvHandle);
 
     // 设置根签名和PSO
     commandList->SetGraphicsRootSignature(rootSignature);
     commandList->SetPipelineState(pso);
 
-    // 绑定Scene的常量缓冲区
+    // 绑定场景常量缓冲区
+    if (m_sceneConstantBuffer) {
+        commandList->SetGraphicsRootConstantBufferView(0, m_sceneConstantBuffer->GetGPUVirtualAddress());
+    }
+
+    // 设置图元拓扑
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // 渲染所有Actor
+    std::vector<Actor*>& actors = scene->GetActors();
+    for (Actor* actor : actors) {
+        if (!actor) continue;
+
+        StaticMeshComponent* mesh = actor->GetMesh();
+        if (!mesh) continue;
+
+        // 绑定Actor的常量缓冲区
+        ID3D12Resource* actorCB = actor->GetConstantBuffer();
+        if (actorCB) {
+            commandList->SetGraphicsRootConstantBufferView(0, actorCB->GetGPUVirtualAddress());
+        }
+
+        // 渲染mesh
+        mesh->Render(commandList, rootSignature);
+    }
+
+    // 转换Shadow Map状态为着色器资源
+    D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_shadowMap.Get(),
+        D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+    );
+    commandList->ResourceBarrier(1, &barrier);
+}
+
+void LightPass::RenderLighting(ID3D12GraphicsCommandList* commandList,
+    ID3D12PipelineState* pso,
+    ID3D12RootSignature* rootSignature,
+    ID3D12Resource* depthBuffer) {
+
+    // 创建SRV
+    CreateInputSRVs(commandList, depthBuffer);
+
+    // 设置根签名和PSO
+    commandList->SetGraphicsRootSignature(rootSignature);
+    commandList->SetPipelineState(pso);
+
+    // 绑定常量缓冲区
     if (m_sceneConstantBuffer) {
         commandList->SetGraphicsRootConstantBufferView(0, m_sceneConstantBuffer->GetGPUVirtualAddress());
     }
@@ -230,35 +328,104 @@ void LightPass::Render(ID3D12GraphicsCommandList* commandList,
     commandList->ResourceBarrier(1, &barrier);
 }
 
-// 旧版本兼容（不带Shadow Map）
-void LightPass::Render(ID3D12GraphicsCommandList* commandList,
-    ID3D12PipelineState* pso,
+void LightPass::RenderDirectLight(ID3D12GraphicsCommandList* commandList,
+    ID3D12PipelineState* shadowPso,
+    ID3D12PipelineState* lightPso,
     ID3D12RootSignature* rootSignature,
-    ID3D12Resource* rt0,
-    ID3D12Resource* rt1,
-    ID3D12Resource* rt2) {
-    // 调用新版本，深度和Shadow Map传nullptr
-    Render(commandList, pso, rootSignature, rt0, rt1, rt2, nullptr, nullptr);
+    Scene* scene,
+    ID3D12Resource* depthBuffer) {
+
+    if (!commandList || !shadowPso || !lightPso || !rootSignature || !scene) {
+        return;
+    }
+
+    // 子pass 1: 渲染shadow map（从光源视角渲染场景深度）
+    RenderShadowMap(commandList, shadowPso, rootSignature, scene);
+
+    // 子pass 2: 计算光照（使用shadow map）
+    RenderLighting(commandList, lightPso, rootSignature, depthBuffer);
+
+    // 将Shadow Map状态转回DEPTH_WRITE，为下一帧准备
+    D3D12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+        m_shadowMap.Get(),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_DEPTH_WRITE
+    );
+    commandList->ResourceBarrier(1, &barrier);
 }
 
-// 使用共享全屏PSO创建
-ID3D12PipelineState* LightPass::CreateLightPSO(ID3D12RootSignature* inID3D12RootSignature,
-    D3D12_SHADER_BYTECODE inVertexShader,
-    D3D12_SHADER_BYTECODE inPixelShader) {
-    if (!gD3D12Device || !inID3D12RootSignature) {
+ID3D12PipelineState* LightPass::CreateShadowPSO(ID3D12RootSignature* rootSignature,
+    D3D12_SHADER_BYTECODE vertexShader,
+    D3D12_SHADER_BYTECODE pixelShader) {
+
+    if (!gD3D12Device || !rootSignature) {
+        OutputDebugStringA("LightPass::CreateShadowPSO - Invalid device or root signature\n");
+        return nullptr;
+    }
+
+    D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
+    psoDesc.pRootSignature = rootSignature;
+    psoDesc.VS = vertexShader;
+    psoDesc.PS = pixelShader;
+
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    psoDesc.RasterizerState.FrontCounterClockwise = FALSE;
+    psoDesc.RasterizerState.DepthBias = 100000;
+    psoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+    psoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+
+    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable = TRUE;
+    psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    psoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+    psoDesc.NumRenderTargets = 0;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count = 1;
+
+    ID3D12PipelineState* pso = nullptr;
+    HRESULT hr = gD3D12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pso));
+    if (FAILED(hr)) {
+        OutputDebugStringA("LightPass::CreateShadowPSO - Failed to create PSO\n");
+        return nullptr;
+    }
+
+    pso->SetName(L"LightPass_ShadowPSO");
+    return pso;
+}
+
+ID3D12PipelineState* LightPass::CreateLightPSO(ID3D12RootSignature* rootSignature,
+    D3D12_SHADER_BYTECODE vertexShader,
+    D3D12_SHADER_BYTECODE pixelShader) {
+
+    if (!gD3D12Device || !rootSignature) {
         OutputDebugStringA("Invalid device or root signature for LightPass PSO creation!\n");
         return nullptr;
     }
 
-    ID3D12PipelineState* pso = CreateFullscreenPSO(inID3D12RootSignature,
-        inVertexShader, inPixelShader, DXGI_FORMAT_R16G16B16A16_FLOAT);
+    ID3D12PipelineState* pso = CreateFullscreenPSO(rootSignature,
+        vertexShader, pixelShader, DXGI_FORMAT_R16G16B16A16_FLOAT);
     if (pso) {
-        pso->SetName(L"LightPass_PipelineState");
+        pso->SetName(L"LightPass_LightPSO");
     }
     return pso;
 }
 
-// 分辨率变更时重新创建资源
 bool LightPass::Resize(int newWidth, int newHeight) {
     if (newWidth == m_width && newHeight == m_height) {
         return true;
@@ -271,7 +438,6 @@ bool LightPass::Resize(int newWidth, int newHeight) {
     m_width = newWidth;
     m_height = newHeight;
 
-    // 重新创建Light RT
     D3D12_RESOURCE_DESC texDesc = {};
     texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     texDesc.Width = m_width;
@@ -291,7 +457,7 @@ bool LightPass::Resize(int newWidth, int newHeight) {
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
         &texDesc,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,  // 初始状态为SRV，与Render函数一致
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         &clearValue,
         IID_PPV_ARGS(&m_lightRT)
     );
@@ -301,9 +467,78 @@ bool LightPass::Resize(int newWidth, int newHeight) {
 
     m_lightRT->SetName(L"LightPass_RT");
 
-    // 重新创建RTV
     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
     gD3D12Device->CreateRenderTargetView(m_lightRT.Get(), nullptr, rtvHandle);
 
     return true;
+}
+
+bool LightPass::ResizeShadowMap(int newSize) {
+    if (newSize == m_shadowMapSize) {
+        return true;
+    }
+
+    WaitForCompletionOfCommandList();
+
+    m_shadowMap.Reset();
+    m_shadowMapSize = newSize;
+
+    try {
+        // 重新创建Shadow Map（不需要重新创建DSV堆）
+        D3D12_RESOURCE_DESC texDesc = {};
+        texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        texDesc.Alignment = 0;
+        texDesc.Width = m_shadowMapSize;
+        texDesc.Height = m_shadowMapSize;
+        texDesc.DepthOrArraySize = 1;
+        texDesc.MipLevels = 1;
+        texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+        texDesc.SampleDesc.Count = 1;
+        texDesc.SampleDesc.Quality = 0;
+        texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+        D3D12_CLEAR_VALUE clearValue = {};
+        clearValue.Format = DXGI_FORMAT_D32_FLOAT;
+        clearValue.DepthStencil.Depth = 1.0f;
+        clearValue.DepthStencil.Stencil = 0;
+
+        D3D12_HEAP_PROPERTIES heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+
+        HRESULT hr = gD3D12Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &texDesc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            &clearValue,
+            IID_PPV_ARGS(&m_shadowMap)
+        );
+
+        if (FAILED(hr)) {
+            return false;
+        }
+
+        m_shadowMap->SetName(L"LightPass_ShadowMap");
+
+        // 重新创建DSV
+        D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+        dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+        dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+        dsvDesc.Texture2D.MipSlice = 0;
+        dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
+
+        gD3D12Device->CreateDepthStencilView(
+            m_shadowMap.Get(),
+            &dsvDesc,
+            m_dsvHeap->GetCPUDescriptorHandleForHeapStart()
+        );
+
+        return true;
+    }
+    catch (const std::exception& e) {
+        OutputDebugStringA("LightPass::ResizeShadowMap failed: ");
+        OutputDebugStringA(e.what());
+        OutputDebugStringA("\n");
+        return false;
+    }
 }
