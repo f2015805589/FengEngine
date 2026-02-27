@@ -148,7 +148,7 @@ private:
     DirectX::XMFLOAT3 m_lightDirection;
     float m_skylightIntensity = 1.0f;  // 场景级Skylight强度
     DirectX::XMFLOAT3 m_skylightColor = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);  // Skylight颜色（默认白色）
-    float m_shadowOrthoSize = 50.0f;  // Shadowmap正交投影范围（默认50）
+    float m_shadowOrthoSize = 20.0f;  // Shadowmap正交投影范围（默认20）
     int m_shadowMode = 2;             // 阴影模式：0=Hard, 1=PCF, 2=PCSS（默认PCSS）
 
 

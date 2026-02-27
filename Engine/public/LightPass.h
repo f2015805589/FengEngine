@@ -10,7 +10,7 @@ class Scene;
 
 class LightPass {
 public:
-    LightPass(int width, int height, int shadowMapSize = 2048);
+    LightPass(int width, int height, int shadowMapSize = 4096);
     ~LightPass();
 
     // 设置场景的常量缓冲区

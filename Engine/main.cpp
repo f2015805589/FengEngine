@@ -181,7 +181,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     // 重新开始用于后续初始化
     commandList->Reset(commandAllocator, nullptr);
 
-    LightPass* lightPass = new LightPass(viewportWidth, viewportHeight, 2048);  // 包含2048x2048 Shadow Map
+    LightPass* lightPass = new LightPass(viewportWidth, viewportHeight, 4096);  // 包含4096x4096 Shadow Map
     lightPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
     if (!lightPass->Initialize(commandList)) {
         MessageBox(NULL, L"LightPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
@@ -871,7 +871,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 // Shadowmap控制
                 ImGui::Separator();
                 ImGui::Text("Shadow Settings");
-                static float shadowOrthoSize = 50.0f;
+                static float shadowOrthoSize = 20.0f;
                 if (ImGui::SliderFloat("Shadow Ortho Size", &shadowOrthoSize, 10.0f, 500.0f)) {
                     g_scene->SetShadowOrthoSize(shadowOrthoSize);
                 }

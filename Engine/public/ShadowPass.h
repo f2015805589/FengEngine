@@ -11,7 +11,7 @@ class Scene;
 
 class ShadowPass {
 public:
-    ShadowPass(int shadowMapSize = 2048);
+    ShadowPass(int shadowMapSize = 4096);
     ~ShadowPass();
 
     // 初始化

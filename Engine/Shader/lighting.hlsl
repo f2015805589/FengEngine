@@ -79,7 +79,7 @@ float3 ReconstructWorldPosition(float2 uv, float depth)
 }
 
 // PCSS参数
-static const float SHADOW_MAP_SIZE = 2048.0f;
+static const float SHADOW_MAP_SIZE = 4096.0f;
 static const float LIGHT_SIZE = 0.02f;  // 光源大小（控制软阴影范围）
 static const int BLOCKER_SEARCH_SAMPLES = 16;
 static const int PCF_SAMPLES = 25;
