@@ -83,7 +83,8 @@ public:
                              const DirectX::XMFLOAT2& jitterOffset, const DirectX::XMFLOAT2& previousJitterOffset,
                              int viewportWidth, int viewportHeight,
                              float nearPlane, float farPlane,
-                             const DirectX::XMMATRIX& currentViewProjMatrix);
+                             const DirectX::XMMATRIX& currentViewProjMatrix,
+                             int shadowMode = 2);
 
     // Is selected (for editor)
     bool IsSelected() const { return m_isSelected; }

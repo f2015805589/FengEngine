@@ -877,6 +877,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 }
                 ImGui::Text("Smaller = Higher Resolution");
 
+                static int shadowMode = 2;  // 默认PCSS
+                const char* shadowModes[] = { "Hard Shadow", "PCF", "PCSS" };
+                if (ImGui::Combo("Shadow Mode", &shadowMode, shadowModes, 3)) {
+                    g_scene->SetShadowMode(shadowMode);
+                }
+
                 if (ImGui::Button("close")) showMainLightWindow = false;
                 ImGui::End();
             }

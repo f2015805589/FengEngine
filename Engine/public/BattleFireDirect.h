@@ -155,7 +155,8 @@ struct SceneCBData {
     DirectX::XMFLOAT4   screenParams;         // [148-151] xy=size, zw=invSize
     DirectX::XMFLOAT4   nearFarParams;        // [152-155] x=near, y=far, zw=padding
     DirectX::XMFLOAT4X4 currentViewProjMatrix;// [156-171]
-    float padding[4];                          // [172-175]
+    float shadowMode;                          // [172] 0=Hard, 1=PCF, 2=PCSS
+    float padding[3];                          // [173-175]
 };
 
 // 填充 SceneCBData（共享逻辑，Scene和Actor都调用）
@@ -175,4 +176,5 @@ void FillSceneCBData(SceneCBData& out,
     const DirectX::XMFLOAT2& previousJitterOffset,
     int viewportWidth, int viewportHeight,
     float nearPlane, float farPlane,
-    const DirectX::XMMATRIX& currentViewProjMatrix);
+    const DirectX::XMMATRIX& currentViewProjMatrix,
+    int shadowMode = 2);

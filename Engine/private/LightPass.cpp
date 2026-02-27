@@ -377,11 +377,11 @@ ID3D12PipelineState* LightPass::CreateShadowPSO(ID3D12RootSignature* rootSignatu
     psoDesc.PS = pixelShader;
 
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;  // 渲染背面，减少自阴影伪影
     psoDesc.RasterizerState.FrontCounterClockwise = FALSE;
-    psoDesc.RasterizerState.DepthBias = 100000;
+    psoDesc.RasterizerState.DepthBias = 5000;
     psoDesc.RasterizerState.DepthBiasClamp = 0.0f;
-    psoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+    psoDesc.RasterizerState.SlopeScaledDepthBias = 2.0f;
 
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 

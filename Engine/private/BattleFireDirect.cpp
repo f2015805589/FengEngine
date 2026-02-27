@@ -912,7 +912,8 @@ void FillSceneCBData(SceneCBData& out,
     const DirectX::XMFLOAT2& previousJitterOffset,
     int viewportWidth, int viewportHeight,
     float nearPlane, float farPlane,
-    const DirectX::XMMATRIX& currentViewProjMatrix) {
+    const DirectX::XMMATRIX& currentViewProjMatrix,
+    int shadowMode) {
 
     using namespace DirectX;
 
@@ -952,5 +953,6 @@ void FillSceneCBData(SceneCBData& out,
 
     XMStoreFloat4x4(&out.currentViewProjMatrix, currentViewProjMatrix);
 
+    out.shadowMode = static_cast<float>(shadowMode);
     memset(out.padding, 0, sizeof(out.padding));
 }

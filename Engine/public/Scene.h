@@ -38,6 +38,10 @@ public:
     void SetShadowOrthoSize(float size) { m_shadowOrthoSize = size; }
     float GetShadowOrthoSize() const { return m_shadowOrthoSize; }
 
+    // 阴影模式：0=Hard, 1=PCF, 2=PCSS
+    void SetShadowMode(int mode) { m_shadowMode = mode; }
+    int GetShadowMode() const { return m_shadowMode; }
+
     // Skylight颜色调节（UE风格的Tint功能）
     void SetSkylightColor(float r, float g, float b) {
         m_skylightColor = DirectX::XMFLOAT3(r, g, b);
@@ -145,6 +149,7 @@ private:
     float m_skylightIntensity = 1.0f;  // 场景级Skylight强度
     DirectX::XMFLOAT3 m_skylightColor = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);  // Skylight颜色（默认白色）
     float m_shadowOrthoSize = 50.0f;  // Shadowmap正交投影范围（默认50）
+    int m_shadowMode = 2;             // 阴影模式：0=Hard, 1=PCF, 2=PCSS（默认PCSS）
 
 
     ID3D12DescriptorHeap* m_rtvHeap = nullptr;   // 离屏RT的RTV描述符堆

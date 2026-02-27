@@ -45,6 +45,9 @@ cbuffer DefaultVertexCB : register(b0)
     float NearPlane; // 152
     float FarPlane; // 153
     float2 _Padding4; // 154-155
+    float4x4 CurrentViewProjectionMatrix; // [156-171]
+    float ShadowMode; // [172] 0=Hard, 1=PCF, 2=PCSS
+    float3 _Padding5; // [173-175]
 };
 
 // 输入纹理
@@ -254,6 +257,30 @@ float CalculateShadow(float3 positionWS)
     return shadow;
 }
 
+// 硬阴影（单点采样，无滤波）
+float CalculateHardShadow(float3 positionWS)
+{
+    float4 positionLS = mul(LightViewProjectionMatrix, float4(positionWS, 1.0f));
+    float3 projCoords = positionLS.xyz / positionLS.w;
+
+    float2 shadowUV;
+    shadowUV.x = projCoords.x * 0.5f + 0.5f;
+    shadowUV.y = -projCoords.y * 0.5f + 0.5f;
+
+    float currentDepth = projCoords.z;
+
+    if (shadowUV.x < 0.0f || shadowUV.x > 1.0f ||
+        shadowUV.y < 0.0f || shadowUV.y > 1.0f ||
+        currentDepth < 0.0f || currentDepth > 1.0f)
+    {
+        return 1.0f;
+    }
+
+    float bias = 0.001f;
+    float shadowMapDepth = g_ShadowMap.Sample(g_Sampler, shadowUV).r;
+    return (currentDepth - bias > shadowMapDepth) ? 0.0f : 1.0f;
+}
+
 float4 LightPS(VSOut inPSInput) : SV_TARGET
 {
     // 从GBuffer采样数据
@@ -266,8 +293,14 @@ float4 LightPS(VSOut inPSInput) : SV_TARGET
     // 从深度重建世界空间位置
     float3 positionWS = ReconstructWorldPosition(inPSInput.texcoord, depth);
 
-    // 计算PCSS阴影
-    float shadow = CalculateShadowPCSS(positionWS);
+    // 根据阴影模式选择算法
+    float shadow;
+    if (ShadowMode < 0.5f)
+        shadow = CalculateHardShadow(positionWS);
+    else if (ShadowMode < 1.5f)
+        shadow = CalculateShadow(positionWS);
+    else
+        shadow = CalculateShadowPCSS(positionWS);
 
     // 输出阴影因子
     return float4(shadow, shadow, shadow, 1.0f);

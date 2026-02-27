@@ -662,7 +662,7 @@ void Scene::Update(float deltaTime) {
         m_jitterOffset, m_previousJitterOffset,
         m_viewportWidth, m_viewportHeight,
         m_camera.GetNearPlane(), m_camera.GetFarPlane(),
-        currentViewProjMatrix);
+        currentViewProjMatrix, m_shadowMode);
 
     // 使用持久映射，直接memcpy到映射内存
     if (m_mappedConstantBuffer) {
@@ -680,7 +680,7 @@ void Scene::Update(float deltaTime) {
             m_jitterOffset, m_previousJitterOffset,
             m_viewportWidth, m_viewportHeight,
             m_camera.GetNearPlane(), m_camera.GetFarPlane(),
-            currentViewProjMatrix);
+            currentViewProjMatrix, m_shadowMode);
     }
 }
 
@@ -845,7 +845,7 @@ void Scene::Render(ID3D12GraphicsCommandList* commandList, ID3D12PipelineState* 
                                        m_jitterOffset, m_previousJitterOffset,
                                        m_viewportWidth, m_viewportHeight,
                                        nearPlane, farPlane,
-                                       currentViewProjMatrix);
+                                       currentViewProjMatrix, m_shadowMode);
 
             // 调试：输出CB的GPU地址，确认每个Actor使用不同的CB
             char cbMsg[256];
@@ -890,221 +890,11 @@ void Scene::HandleInput(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     m_camera.HandleInput(hWnd, msg, wParam, lParam);
 }
 
-// 计算平行光的LiSPSM矩阵（Light Space Perspective Shadow Maps）
-// 参考论文: "Light Space Perspective Shadow Maps" by Wimmer et al.
-//
-// LiSPSM核心思想：
-// 1. 构建一个虚拟相机，其Y轴指向光源，Z轴垂直于光线且在光线-视线平面内
-// 2. 用这个虚拟相机的透视投影对场景进行warp，使近处物体获得更高分辨率
-// 3. 在warp后的空间中，从光源方向进行正交投影生成阴影图
+// 计算平行光阴影矩阵（固定阴影范围 + 标准正交投影）
 DirectX::XMMATRIX Scene::CalculateLiSPSMMatrix(const DirectX::XMVECTOR& lightDir,
                                                 const DirectX::XMMATRIX& cameraView,
                                                 const DirectX::XMMATRIX& cameraProj) {
-    using namespace DirectX;
-
-    // ========== 1. 获取相机参数 ==========
-    XMVECTOR camDet;
-    XMMATRIX invCameraView = XMMatrixInverse(&camDet, cameraView);
-
-    // 相机位置和方向（从逆View矩阵提取）
-    XMVECTOR camPos = invCameraView.r[3];  // 相机世界位置
-    XMVECTOR camDir = XMVector3Normalize(invCameraView.r[2]);  // 相机前向（-Z轴在view空间，但这里是世界空间的前向）
-    XMVECTOR camUp = XMVector3Normalize(invCameraView.r[1]);   // 相机上向
-
-    // 归一化光源方向（lightDir是从表面指向光源）
-    XMVECTOR L = XMVector3Normalize(lightDir);  // 指向光源的方向
-
-    // ========== 2. 计算光线与视线的夹角 ==========
-    float cosGamma = fabsf(XMVectorGetX(XMVector3Dot(camDir, L)));
-    float sinGamma = sqrtf(1.0f - cosGamma * cosGamma);
-
-    // 如果光线几乎平行于视线方向，退化为标准正交投影
-    const float LISPSM_THRESHOLD = 0.1f;
-    if (sinGamma < LISPSM_THRESHOLD) {
-        return CalculateStandardShadowMatrix(lightDir);
-    }
-
-    // ========== 3. 构建LiSPSM坐标系 ==========
-    // Y轴：指向光源方向（用于透视warp，保证定向光不会变成点光源）
-    XMVECTOR lispY = L;
-
-    // Z轴：垂直于光线，且在光线-视线平面内
-    // 计算：camDir - (camDir · L) * L，即camDir在垂直于L平面上的投影
-    float dotCamL = XMVectorGetX(XMVector3Dot(camDir, L));
-    XMVECTOR lispZ = XMVectorSubtract(camDir, XMVectorScale(L, dotCamL));
-    float lispZLen = XMVectorGetX(XMVector3Length(lispZ));
-
-    if (lispZLen < 0.001f) {
-        // 视线与光线平行，使用相机up向量
-        float dotUpL = XMVectorGetX(XMVector3Dot(camUp, L));
-        lispZ = XMVectorSubtract(camUp, XMVectorScale(L, dotUpL));
-    }
-    lispZ = XMVector3Normalize(lispZ);
-
-    // X轴：Y × Z（右手坐标系）
-    XMVECTOR lispX = XMVector3Cross(lispY, lispZ);
-    lispX = XMVector3Normalize(lispX);
-
-    // ========== 4. 收集场景包围盒（PSC - Potential Shadow Casters） ==========
-    XMFLOAT3 minBounds(FLT_MAX, FLT_MAX, FLT_MAX);
-    XMFLOAT3 maxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-
-    for (Actor* actor : m_actors) {
-        if (!actor || !actor->GetMesh()) continue;
-        StaticMeshComponent* mesh = actor->GetMesh();
-        if (!mesh->mVertexData || mesh->mVertexCount <= 0) continue;
-
-        XMMATRIX worldMatrix = actor->GetModelMatrix();
-        for (int i = 0; i < mesh->mVertexCount; ++i) {
-            XMVECTOR localPos = XMVectorSet(
-                mesh->mVertexData[i].mPosition[0],
-                mesh->mVertexData[i].mPosition[1],
-                mesh->mVertexData[i].mPosition[2],
-                1.0f
-            );
-            XMVECTOR worldPos = XMVector3Transform(localPos, worldMatrix);
-
-            minBounds.x = min(minBounds.x, XMVectorGetX(worldPos));
-            minBounds.y = min(minBounds.y, XMVectorGetY(worldPos));
-            minBounds.z = min(minBounds.z, XMVectorGetZ(worldPos));
-            maxBounds.x = max(maxBounds.x, XMVectorGetX(worldPos));
-            maxBounds.y = max(maxBounds.y, XMVectorGetY(worldPos));
-            maxBounds.z = max(maxBounds.z, XMVectorGetZ(worldPos));
-        }
-    }
-
-    if (minBounds.x == FLT_MAX) {
-        minBounds = XMFLOAT3(-50.0f, -50.0f, -50.0f);
-        maxBounds = XMFLOAT3(50.0f, 50.0f, 50.0f);
-    }
-
-    // ========== 5. 构建LiSPSM View矩阵 ==========
-    // 这是一个旋转矩阵，将世界空间转换到LiSPSM空间
-    // LiSPSM空间：X=lispX, Y=lispY(光源方向), Z=lispZ
-    XMMATRIX lispRotation = XMMatrixIdentity();
-    lispRotation.r[0] = XMVectorSetW(lispX, 0.0f);
-    lispRotation.r[1] = XMVectorSetW(lispY, 0.0f);
-    lispRotation.r[2] = XMVectorSetW(lispZ, 0.0f);
-    lispRotation.r[3] = XMVectorSet(0.0f, 0.0f, 0.0f, 1.0f);
-    lispRotation = XMMatrixTranspose(lispRotation);  // 转置得到正确的变换
-
-    // ========== 6. 在LiSPSM空间计算包围盒 ==========
-    float lispMinX = FLT_MAX, lispMaxX = -FLT_MAX;
-    float lispMinY = FLT_MAX, lispMaxY = -FLT_MAX;
-    float lispMinZ = FLT_MAX, lispMaxZ = -FLT_MAX;
-
-    XMFLOAT3 corners[8] = {
-        {minBounds.x, minBounds.y, minBounds.z},
-        {maxBounds.x, minBounds.y, minBounds.z},
-        {minBounds.x, maxBounds.y, minBounds.z},
-        {maxBounds.x, maxBounds.y, minBounds.z},
-        {minBounds.x, minBounds.y, maxBounds.z},
-        {maxBounds.x, minBounds.y, maxBounds.z},
-        {minBounds.x, maxBounds.y, maxBounds.z},
-        {maxBounds.x, maxBounds.y, maxBounds.z}
-    };
-
-    for (int i = 0; i < 8; ++i) {
-        XMVECTOR corner = XMVectorSet(corners[i].x, corners[i].y, corners[i].z, 1.0f);
-        XMVECTOR lispCorner = XMVector3Transform(corner, lispRotation);
-
-        lispMinX = min(lispMinX, XMVectorGetX(lispCorner));
-        lispMaxX = max(lispMaxX, XMVectorGetX(lispCorner));
-        lispMinY = min(lispMinY, XMVectorGetY(lispCorner));
-        lispMaxY = max(lispMaxY, XMVectorGetY(lispCorner));
-        lispMinZ = min(lispMinZ, XMVectorGetZ(lispCorner));
-        lispMaxZ = max(lispMaxZ, XMVectorGetZ(lispCorner));
-    }
-
-    // 变换相机位置到LiSPSM空间
-    XMVECTOR camPosLisp = XMVector3Transform(camPos, lispRotation);
-    float camYLisp = XMVectorGetY(camPosLisp);
-
-    // ========== 7. 计算最优n值 ==========
-    // 根据LiSPSM论文：n_opt = (near + sqrt(near * far)) / sin(gamma)
-    float nearPlane = m_camera.GetNearPlane();
-    float farPlane = m_camera.GetFarPlane();
-
-    float n_opt = (nearPlane + sqrtf(nearPlane * farPlane)) / sinGamma;
-
-    // 场景在Y方向（光源方向）的深度
-    float sceneDepthY = lispMaxY - lispMinY;
-    if (sceneDepthY < 1.0f) sceneDepthY = 100.0f;
-
-    // 限制n值
-    n_opt = max(n_opt, 0.1f);
-    n_opt = min(n_opt, sceneDepthY * 10.0f);
-
-    // ========== 8. 构建透视warp矩阵P ==========
-    // 虚拟视点位置：在场景下方（Y方向最小值再减去n）
-    float eyeY = lispMinY - n_opt;
-
-    // 透视投影的near/far
-    float pNear = n_opt;
-    float pFar = n_opt + sceneDepthY + 10.0f;
-
-    // 场景中心
-    float centerX = (lispMinX + lispMaxX) * 0.5f;
-    float centerZ = (lispMinZ + lispMaxZ) * 0.5f;
-
-    // 平移到虚拟视点
-    XMMATRIX translateToEye = XMMatrixTranslation(-centerX, -eyeY, -centerZ);
-
-    // 透视投影（沿Y轴看）
-    // 由于DirectX的透视投影是沿Z轴的，我们需要交换Y和Z
-    // 先做一个旋转，把Y轴变成Z轴
-    XMMATRIX swapYZ = XMMatrixIdentity();
-    swapYZ.r[1] = XMVectorSet(0, 0, 1, 0);  // Y -> Z
-    swapYZ.r[2] = XMVectorSet(0, 1, 0, 0);  // Z -> Y
-
-    float halfWidth = (lispMaxX - lispMinX) * 0.5f + 1.0f;
-    float halfHeight = (lispMaxZ - lispMinZ) * 0.5f + 1.0f;
-
-    XMMATRIX perspWarp = XMMatrixPerspectiveLH(halfWidth * 2.0f, halfHeight * 2.0f, pNear, pFar);
-
-    // 组合warp变换：Rotation -> Translate -> SwapYZ -> Perspective
-    XMMATRIX warpMatrix = XMMatrixMultiply(lispRotation, translateToEye);
-    warpMatrix = XMMatrixMultiply(warpMatrix, swapYZ);
-    warpMatrix = XMMatrixMultiply(warpMatrix, perspWarp);
-
-    // ========== 9. 在warp后的空间做正交投影 ==========
-    // warp后场景已经被透视变换，现在需要从光源方向做正交投影
-    // 由于Y轴是光源方向，warp后光源方向变成了Z轴（因为swapYZ）
-    // 所以直接用正交投影即可
-
-    // 计算warp后的包围盒
-    float warpMinX = FLT_MAX, warpMaxX = -FLT_MAX;
-    float warpMinY = FLT_MAX, warpMaxY = -FLT_MAX;
-    float warpMinZ = FLT_MAX, warpMaxZ = -FLT_MAX;
-
-    for (int i = 0; i < 8; ++i) {
-        XMVECTOR corner = XMVectorSet(corners[i].x, corners[i].y, corners[i].z, 1.0f);
-        XMVECTOR warpCorner = XMVector4Transform(corner, warpMatrix);
-        // 透视除法
-        float w = XMVectorGetW(warpCorner);
-        if (fabsf(w) > 0.0001f) {
-            warpCorner = XMVectorScale(warpCorner, 1.0f / w);
-        }
-
-        warpMinX = min(warpMinX, XMVectorGetX(warpCorner));
-        warpMaxX = max(warpMaxX, XMVectorGetX(warpCorner));
-        warpMinY = min(warpMinY, XMVectorGetY(warpCorner));
-        warpMaxY = max(warpMaxY, XMVectorGetY(warpCorner));
-        warpMinZ = min(warpMinZ, XMVectorGetZ(warpCorner));
-        warpMaxZ = max(warpMaxZ, XMVectorGetZ(warpCorner));
-    }
-
-    // 正交投影，将warp后的空间映射到[-1,1]
-    XMMATRIX orthoProj = XMMatrixOrthographicOffCenterLH(
-        warpMinX, warpMaxX,
-        warpMinY, warpMaxY,
-        warpMinZ - 10.0f, warpMaxZ + 10.0f
-    );
-
-    // 最终矩阵 = warp + 正交投影
-    XMMATRIX finalMatrix = XMMatrixMultiply(warpMatrix, orthoProj);
-
-    return finalMatrix;
+    return CalculateStandardShadowMatrix(lightDir);
 }
 
 // 辅助函数：计算标准正交阴影矩阵（用于退化情况）
@@ -1113,59 +903,23 @@ DirectX::XMMATRIX Scene::CalculateStandardShadowMatrix(const DirectX::XMVECTOR& 
 
     XMVECTOR L = XMVector3Normalize(-lightDir);
 
-    // 收集场景包围盒
-    XMFLOAT3 minBounds(FLT_MAX, FLT_MAX, FLT_MAX);
-    XMFLOAT3 maxBounds(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    // 以摄像机为中心的固定阴影范围（替代场景AABB）
+    float shadowSize = m_shadowOrthoSize;
+    XMFLOAT3 camPosF = m_camera.GetPosition();
 
-    for (Actor* actor : m_actors) {
-        if (!actor || !actor->GetMesh()) continue;
-        StaticMeshComponent* mesh = actor->GetMesh();
-        if (!mesh->mVertexData || mesh->mVertexCount <= 0) continue;
+    // 对齐到纹素网格，消除摄像机移动时的阴影抖动
+    const float shadowMapResolution = 2048.0f;  // TODO: 从LightPass获取实际分辨率
+    float texelSize = (shadowSize * 2.0f) / shadowMapResolution;
+    float snappedX = floorf(camPosF.x / texelSize) * texelSize;
+    float snappedZ = floorf(camPosF.z / texelSize) * texelSize;
 
-        XMMATRIX worldMatrix = actor->GetModelMatrix();
-        for (int i = 0; i < mesh->mVertexCount; ++i) {
-            XMVECTOR localPos = XMVectorSet(
-                mesh->mVertexData[i].mPosition[0],
-                mesh->mVertexData[i].mPosition[1],
-                mesh->mVertexData[i].mPosition[2],
-                1.0f
-            );
-            XMVECTOR worldPos = XMVector3Transform(localPos, worldMatrix);
+    XMFLOAT3 minBounds(snappedX - shadowSize, camPosF.y - shadowSize, snappedZ - shadowSize);
+    XMFLOAT3 maxBounds(snappedX + shadowSize, camPosF.y + shadowSize, snappedZ + shadowSize);
 
-            minBounds.x = min(minBounds.x, XMVectorGetX(worldPos));
-            minBounds.y = min(minBounds.y, XMVectorGetY(worldPos));
-            minBounds.z = min(minBounds.z, XMVectorGetZ(worldPos));
-            maxBounds.x = max(maxBounds.x, XMVectorGetX(worldPos));
-            maxBounds.y = max(maxBounds.y, XMVectorGetY(worldPos));
-            maxBounds.z = max(maxBounds.z, XMVectorGetZ(worldPos));
-        }
-    }
+    XMVECTOR sceneCenter = XMVectorSet(snappedX, camPosF.y, snappedZ, 1.0f);
 
-    if (m_actors.empty() && m_staticMesh.mVertexData && m_staticMesh.mVertexCount > 0) {
-        for (int i = 0; i < m_staticMesh.mVertexCount; ++i) {
-            minBounds.x = min(minBounds.x, m_staticMesh.mVertexData[i].mPosition[0]);
-            minBounds.y = min(minBounds.y, m_staticMesh.mVertexData[i].mPosition[1]);
-            minBounds.z = min(minBounds.z, m_staticMesh.mVertexData[i].mPosition[2]);
-            maxBounds.x = max(maxBounds.x, m_staticMesh.mVertexData[i].mPosition[0]);
-            maxBounds.y = max(maxBounds.y, m_staticMesh.mVertexData[i].mPosition[1]);
-            maxBounds.z = max(maxBounds.z, m_staticMesh.mVertexData[i].mPosition[2]);
-        }
-    }
-
-    if (minBounds.x == FLT_MAX) {
-        minBounds = XMFLOAT3(-50.0f, -50.0f, -50.0f);
-        maxBounds = XMFLOAT3(50.0f, 50.0f, 50.0f);
-    }
-
-    XMVECTOR sceneCenter = XMVectorSet(
-        (minBounds.x + maxBounds.x) * 0.5f,
-        (minBounds.y + maxBounds.y) * 0.5f,
-        (minBounds.z + maxBounds.z) * 0.5f,
-        1.0f
-    );
-
-    float lightDistance = 100.0f;
-    XMVECTOR lightPos = sceneCenter - L * lightDistance;
+    float lightDistance = shadowSize * 4.0f;  // 确保光源足够远，覆盖整个阴影范围
+    XMVECTOR lightPos = sceneCenter + L * lightDistance;
 
     XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     float dotUp = abs(XMVectorGetX(XMVector3Dot(L, up)));
@@ -1204,10 +958,13 @@ DirectX::XMMATRIX Scene::CalculateStandardShadowMatrix(const DirectX::XMVECTOR& 
     }
 
     float padding = 5.0f;
+    // 确保near平面不为负（光源后方），同时保留足够深度范围
+    float nearZ = max(0.1f, minZ - padding);
+    float farZ = maxZ + padding;
     XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(
         minX - padding, maxX + padding,
         minY - padding, maxY + padding,
-        minZ - padding, maxZ + padding
+        nearZ, farZ
     );
 
     return XMMatrixMultiply(lightView, lightProj);

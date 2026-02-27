@@ -201,7 +201,8 @@ void Actor::UpdateConstantBuffer(const DirectX::XMMATRIX& viewMatrix, const Dire
                                   const DirectX::XMFLOAT2& jitterOffset, const DirectX::XMFLOAT2& previousJitterOffset,
                                   int viewportWidth, int viewportHeight,
                                   float nearPlane, float farPlane,
-                                  const DirectX::XMMATRIX& currentViewProjMatrix) {
+                                  const DirectX::XMMATRIX& currentViewProjMatrix,
+                                  int shadowMode) {
     if (!m_mappedConstantBuffer) return;
 
     // 使用共享函数填充CB（Actor使用自己的ModelMatrix）
@@ -214,7 +215,7 @@ void Actor::UpdateConstantBuffer(const DirectX::XMMATRIX& viewMatrix, const Dire
         jitterOffset, previousJitterOffset,
         viewportWidth, viewportHeight,
         nearPlane, farPlane,
-        currentViewProjMatrix);
+        currentViewProjMatrix, shadowMode);
 
     memcpy(m_mappedConstantBuffer, &m_cbData, sizeof(SceneCBData));
 }
