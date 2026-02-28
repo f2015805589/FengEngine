@@ -97,6 +97,9 @@
     <ClCompile Include="Engine\private\TaaPass.cpp">
       <Filter>Engine\private</Filter>
     </ClCompile>
+    <ClCompile Include="Engine\private\GtaoPass.cpp">
+      <Filter>Engine\private</Filter>
+    </ClCompile>
     <ClCompile Include="Engine\private\ShadowPass.cpp">
       <Filter>Engine\private</Filter>
     </ClCompile>
@@ -202,6 +205,9 @@
       <Filter>Engine\public</Filter>
     </ClInclude>
     <ClInclude Include="Engine\public\TaaPass.h">
+      <Filter>Engine\public</Filter>
+    </ClInclude>
+    <ClInclude Include="Engine\public\GtaoPass.h">
       <Filter>Engine\public</Filter>
     </ClInclude>
     <ClInclude Include="Engine\public\ShadowPass.h">

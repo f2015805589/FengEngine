@@ -412,6 +412,7 @@ std::string ShaderParser::GenerateHLSLCode(int passIndex) const {
             code << "Texture2D DepthTexture : register(t3);\n";  // 深度纹理替代position
             code << "TextureCube SkyCube : register(t4);\n";
             code << "Texture2D ShadowMap : register(t5);\n\n";  // LightPass输出的阴影图
+            code << "Texture2D GTAOTexture : register(t6);\n";  // GTAO输出的AO纹理
 
             // 使用screen.hlsl的采样器
             code << "SamplerState gSamPointWrap : register(s0);\n";

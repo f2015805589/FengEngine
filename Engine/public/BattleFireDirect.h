@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 extern ID3D12Device* gD3D12Device;
+extern ID3D12CommandQueue* gCommandQueue;
 
 // 交换链RTV堆和相关变量
 extern ID3D12DescriptorHeap* gSwapChainRTVHeap;

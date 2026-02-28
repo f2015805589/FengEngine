@@ -208,10 +208,16 @@ Shader "Screen"
             float4 positionWS = mul(InverseViewMatrix, viewSpacePos);
 
             // 解包ORM和ShadingModelID
-            float ao = orm.r;
+            float materialAO = orm.r;
             float roughness = orm.g;
             float metallic = orm.b;
             uint shadingModelID = uint(orm.a * 255.0 + 0.5);  // 解包ShadingModel
+
+            // 采样GTAO（t6由编译器注入）
+            // GTAO关闭时，GTAOTexture是1x1白色纹理，采样值为1.0（无遮蔽）
+            // 使用Clamp采样器避免边缘处纹理坐标环绕导致的伪影
+            float gtao = GTAOTexture.Sample(gSamPointClamp, input.uv).r;
+            float ao = materialAO * gtao;
 
             // 计算视线方向和反射方向
             float3 N = normalize(normal.xyz);
@@ -264,7 +270,7 @@ Shader "Screen"
             {
                 // 采样阴影图（从LightPass输出）
                 float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
-                // 直接光照 * 阴影 + 间接光照
+                // 直接光照 * 阴影 + 间接光照（ambient已包含AO）
                 finalColor = directLighting * shadow * 6.0 + ambient;
                 alpha = 1.0;
             }

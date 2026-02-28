@@ -1,15 +1,64 @@
+## FEngine
+
 FEngine 是一个基于 DirectX 12 从零构建的实时渲染引擎，采用 C++ 开发，面向学习和实验现代图形渲染技术。
 
-引擎采用多 Pass 延迟渲染架构，渲染管线包含 BasePass（G-Buffer 输出 Albedo、Normal、ORM）、LightPass（光照计算与阴影）、ScreenPass（全屏后处理合成）、SkyPass（天空球渲染）以及 TaaPass（时域抗锯齿）。TAA 基于 Halton 序列抖动采样，结合 Motion Vector 实现帧间混合。
+### 渲染架构
 
-材质系统参考 Unity ShaderLab 风格，支持自定义 .shader 文件格式，引擎自动解析并生成 HLSL 代码、编译、创建 PSO。内置 StandardPBR 和 ToonPBR 两种着色模型，支持多 Pass 渲染和材质实例化。材质编辑器基于 ImGui 实现，可实时调整参数。
+引擎采用多 Pass 延迟渲染架构，渲染管线包含以下阶段：
 
-PBR 光照方面，引擎实现了完整的 IBL 管线：通过 Compute Shader 预计算 BRDF LUT、Irradiance Map 和 Prefiltered Environment Map，并集成球谐光照（SH）用于 Skylight 漫反射。
+- **BasePass**：G-Buffer 输出，生成 Albedo、Normal、ORM（遮蔽/粗糙度/金属度）三张渲染目标。
+- **ShadowPass**：阴影深度渲染，生成阴影贴图供后续光照使用。
+- **LightPass**：延迟光照计算，结合 G-Buffer 和阴影贴图完成直接光照与阴影评估。
+- **GtaoPass**：Ground Truth Ambient Occlusion（GTAO），屏幕空间环境遮蔽。从深度重建视空间位置，在法线半球内进行视线方向积分计算 AO，配合 Cross-Bilateral Blur 进行边缘保持降噪。支持可调节的 AO 半径、强度、切片数和步进数，并内置屏幕边缘淡化消除伪影。GTAO 关闭时自动回退到白色纹理（AO=1，无遮蔽）。
+- **ScreenPass**：全屏后处理合成，将光照结果、IBL 间接光、GTAO 遮蔽、天空球等合并为最终画面。
+- **SkyPass**：天空球渲染，支持 Cubemap 采样。
+- **TaaPass**：时域抗锯齿（TAA），基于 Halton 序列抖动采样，结合 Motion Vector 实现帧间混合与历史重投影。
 
-纹理系统集成了 NVIDIA Texture Tools，支持运行时将 PNG/JPG/HDR 等格式压缩为 BC3/BC7 DDS，带纹理缓存和预览面板。支持 Cubemap、2D 纹理、.texture.ast 资产格式。
+### 材质系统
 
-场景管理支持 Actor-Component 模式，每个 Actor 拥有独立的 Transform、StaticMeshComponent 和 MaterialInstance。支持 .mesh 资产描述文件、.level 关卡序列化、FBX 模型导入。
+材质系统参考 Unity ShaderLab 风格，支持自定义 `.shader` 文件格式。引擎自动解析 Shader 文件，生成 HLSL 代码、编译着色器并创建 PSO。内置两种着色模型：
 
-编辑器基于 ImGui，提供资源浏览器（文件树）、材质编辑器、纹理预览、场景层级面板等功能。
+- **StandardPBR**：标准基于物理的渲染着色模型。
+- **ToonPBR**：卡通风格着色模型。
+
+支持多 Pass 渲染和材质实例化（MaterialInstance）。材质编辑器基于 ImGui 实现，可实时调整参数并即时预览效果。材质资产格式为 `.material`。
+
+### PBR 与 IBL 光照
+
+引擎实现了完整的 IBL（Image-Based Lighting）管线：
+
+- 通过 Compute Shader 预计算 **BRDF LUT**（双向反射分布函数积分查找表）。
+- **Irradiance Map**：漫反射辐照度卷积贴图。
+- **Prefiltered Environment Map**：不同粗糙度等级的预滤波环境贴图，用于镜面反射。
+- 集成 **球谐光照（Spherical Harmonics, SH）**，用于 Skylight 漫反射间接光照。
+
+### 纹理系统
+
+纹理系统集成了 NVIDIA Texture Tools，支持运行时将 PNG/JPG/HDR 等格式压缩为 BC3/BC7 DDS，带纹理缓存机制。支持 Cubemap、2D 纹理，资产格式为 `.texture.ast`。编辑器提供纹理预览面板。
+
+### 场景管理
+
+场景管理支持 Actor-Component 模式：
+
+- 每个 **Actor** 拥有独立的 Transform、StaticMeshComponent 和 MaterialInstance。
+- 支持 `.mesh` 资产描述文件，引用 FBX 模型源文件。
+- 支持 `.level` 关卡序列化与加载。
+- 支持 FBX 模型导入（基于 FBX SDK 2020.3.7）。
+
+### 编辑器
+
+编辑器基于 ImGui，提供以下功能面板：
+
+- **资源浏览器**：文件树结构浏览项目资产。
+- **材质编辑器**：实时调整着色参数、切换着色模型。
+- **纹理预览**：查看纹理资产详情与压缩格式。
+- **场景层级面板**：管理场景中的 Actor 层级关系。
+- **GTAO 调试面板**：实时调节 AO 半径、强度、切片数、步进数等参数。
+
+### 项目构建
 
 项目已实现路径可移植化，通过 exe 位置动态推算项目根目录，无硬编码绝对路径，可直接 clone 后编译运行。
+
+- 开发环境：Visual Studio 2019/2022
+- 图形 API：DirectX 12
+- 第三方依赖：ImGui、DirectXTex、FBX SDK、NVIDIA Texture Tools、stb_image

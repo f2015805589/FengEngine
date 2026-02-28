@@ -156,6 +156,7 @@
     <ClCompile Include="Engine\private\SkyPass.cpp" />
     <ClCompile Include="Engine\private\StaticMeshComponent.cpp" />
     <ClCompile Include="Engine\private\TaaPass.cpp" />
+    <ClCompile Include="Engine\private\GtaoPass.cpp" />
     <ClCompile Include="Engine\private\Texture\TextureAsset.cpp" />
     <ClCompile Include="Engine\private\Texture\TextureCompressor.cpp" />
     <ClCompile Include="Engine\private\Texture\TextureManager.cpp" />
@@ -192,6 +193,7 @@
     <ClInclude Include="Engine\public\SkyPass.h" />
     <ClInclude Include="Engine\public\StaticMeshComponent.h" />
     <ClInclude Include="Engine\public\TaaPass.h" />
+    <ClInclude Include="Engine\public\GtaoPass.h" />
     <ClInclude Include="Engine\public\Texture\TextureAsset.h" />
     <ClInclude Include="Engine\public\Texture\TextureCompressor.h" />
     <ClInclude Include="Engine\public\Texture\TextureManager.h" />

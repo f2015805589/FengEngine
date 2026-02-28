@@ -12,6 +12,7 @@
 #include "public/ScreenPass.h"
 #include "public/SkyPass.h"
 #include "public/TaaPass.h"
+#include "public/GtaoPass.h"
 #include "public/Material.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/MaterialEditorPanel.h"
@@ -211,6 +212,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         return -1;
     }
 
+    // 初始化GtaoPass
+    GtaoPass* gtaoPass = new GtaoPass();
+    gtaoPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
+    if (!gtaoPass->Initialize(viewportWidth, viewportHeight)) {
+        MessageBox(NULL, L"GtaoPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
     ID3D12RootSignature* rootSignature = InitRootSignature();
 
     // 设置MaterialManager的RootSignature（用于按需加载shader时自动创建PSO）
@@ -265,6 +274,26 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     ID3D12PipelineState* taaPso = taaPass->CreatePSO(rootSignature, taaVS, taaPS);
     if (!taaPso) {
         MessageBox(NULL, L"创建TaaPass PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    // 加载GTAO着色器
+    D3D12_SHADER_BYTECODE gtaoVS, gtaoPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/GTAO.hlsl").c_str(), "VSMain", "vs_5_0", &gtaoVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/GTAO.hlsl").c_str(), "PSMain", "ps_5_0", &gtaoPS);
+    ID3D12PipelineState* gtaoPso = gtaoPass->CreateGtaoPSO(rootSignature, gtaoVS, gtaoPS);
+    if (!gtaoPso) {
+        MessageBox(NULL, L"创建GTAO PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    // 加载GTAO Blur着色器
+    D3D12_SHADER_BYTECODE gtaoBlurVS, gtaoBlurPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/GTAOBlur.hlsl").c_str(), "VSMain", "vs_5_0", &gtaoBlurVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/GTAOBlur.hlsl").c_str(), "PSMain", "ps_5_0", &gtaoBlurPS);
+    ID3D12PipelineState* gtaoBlurPso = gtaoPass->CreateBlurPSO(rootSignature, gtaoBlurVS, gtaoBlurPS);
+    if (!gtaoBlurPso) {
+        MessageBox(NULL, L"创建GTAO Blur PSO失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
     }
 
@@ -548,7 +577,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     // 5. 调整TaaPass
                     taaPass->Resize(newWidth, newHeight);
 
-                    // 5. 更新Settings
+                    // 6. 调整GtaoPass
+                    gtaoPass->Resize(newWidth, newHeight);
+
+                    // 7. 更新Settings
                     Settings::GetInstance().SetResolution(newWidth, newHeight);
 
                     // 调试输出
@@ -611,6 +643,25 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             EndCommandList();
             WaitForCompletionOfCommandList();  // Wait for LightPass to complete
 
+            //GtaoPass=======================================
+            // 执行GTAO（在LightPass之后、SkyPass之前）
+            if (gtaoPass->IsEnabled()) {
+                commandList->Reset(commandAllocator, gtaoPso);
+                commandList->BeginEvent(0, L"GtaoPass", (UINT)(wcslen(L"GtaoPass") * sizeof(wchar_t)));
+
+                // 注意：深度缓冲在BasePass的Scene::Render末尾已经被转为PIXEL_SHADER_RESOURCE
+                // LightPass使用后状态不变，所以这里直接使用即可
+
+                auto& gtaoSceneRTs = g_scene->m_offscreenRTs;
+                gtaoPass->Render(commandList, gtaoPso, gtaoBlurPso, rootSignature,
+                    gDSRT,              // 深度缓冲（已经是PIXEL_SHADER_RESOURCE状态）
+                    gtaoSceneRTs[1]);   // 法线RT (GBuffer RT1，已经是PIXEL_SHADER_RESOURCE状态)
+
+                commandList->EndEvent();
+                EndCommandList();
+                WaitForCompletionOfCommandList();  // Wait for GtaoPass to complete
+            }
+
             //SkyPass=======================================
             // 执行SkyPass（渲染天空球，在ScreenPass之前）
             // 当TAA启用时，渲染到中间RT；否则渲染到交换链
@@ -672,12 +723,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             auto& sceneRTs = g_scene->m_offscreenRTs;
             ComPtr<ID3D12Resource> skyTexture = g_scene->ReturnSkyCube();
-            // 渲染（使用深度缓冲代替Position RT，传入LightPass的阴影图）
+            // 渲染（使用深度缓冲代替Position RT，传入LightPass的阴影图和GTAO纹理）
+            // GetAOTexture() 在GTAO关闭时会返回默认白色纹理（AO=1，无遮蔽）
             screenPass->Render(commandList, deferredLightingPso, rootSignature,
                 sceneRTs[0], sceneRTs[1], sceneRTs[2],  // 3个GBuffer RT
                 gDSRT,  // 深度缓冲用于位置重构
                 skyTexture,
-                lightPass->GetLightRT());  // LightPass输出的阴影图
+                lightPass->GetLightRT(),  // LightPass输出的阴影图
+                gtaoPass->GetAOTexture());  // GTAO输出（关闭时为白色纹理）
 
             // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧和BeginRenderToSwapChain使用
             D3D12_RESOURCE_BARRIER depthBarrier = {};
@@ -810,6 +863,31 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 bool taaEnabled = taaPass->IsEnabled();
                 if (ImGui::Checkbox("Enable TAA", &taaEnabled)) {
                     taaPass->SetEnabled(taaEnabled);
+                }
+
+                ImGui::Separator();
+                ImGui::Text("GTAO Settings");
+                bool gtaoEnabled = gtaoPass->IsEnabled();
+                if (ImGui::Checkbox("Enable GTAO", &gtaoEnabled)) {
+                    gtaoPass->SetEnabled(gtaoEnabled);
+                }
+                if (gtaoPass->IsEnabled()) {
+                    float aoRadius = gtaoPass->GetRadius();
+                    if (ImGui::SliderFloat("AO Radius", &aoRadius, 0.1f, 5.0f)) {
+                        gtaoPass->SetRadius(aoRadius);
+                    }
+                    float aoIntensity = gtaoPass->GetIntensity();
+                    if (ImGui::SliderFloat("AO Intensity", &aoIntensity, 0.1f, 5.0f)) {
+                        gtaoPass->SetIntensity(aoIntensity);
+                    }
+                    int sliceCount = gtaoPass->GetSliceCount();
+                    if (ImGui::SliderInt("AO Slices", &sliceCount, 1, 8)) {
+                        gtaoPass->SetSliceCount(sliceCount);
+                    }
+                    int stepsPerSlice = gtaoPass->GetStepsPerSlice();
+                    if (ImGui::SliderInt("AO Steps/Slice", &stepsPerSlice, 1, 8)) {
+                        gtaoPass->SetStepsPerSlice(stepsPerSlice);
+                    }
                 }
 
                 ImGui::Separator();
@@ -1096,6 +1174,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     delete g_scene;
     delete g_materialEditor;
+    delete gtaoPass;
 
     // 清理纹理系统
     TexturePreviewPanel::GetInstance().Shutdown();
