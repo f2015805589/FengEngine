@@ -14,6 +14,7 @@ Release/
 *.sdf
 *.opensdf
 .vs/
+.idea/
 
 # 白名单：第三方SDK的lib/dll/exe需要保留
 !fbxsdk/**/*.lib
