@@ -870,12 +870,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 }
 
                 ImGui::Separator();
-                ImGui::Text("GTAO Settings");
-                bool gtaoEnabled = gtaoPass->IsEnabled();
-                if (ImGui::Checkbox("Enable GTAO", &gtaoEnabled)) {
-                    gtaoPass->SetEnabled(gtaoEnabled);
+                ImGui::Text("AO Settings");
+
+                // AO类型下拉框
+                const char* aoTypes[] = { "Close", "SSAO", "GTAO" };
+                int currentAOType = gtaoPass->GetAOType();
+                if (ImGui::Combo("AO", &currentAOType, aoTypes, 3)) {
+                    gtaoPass->SetAOType(currentAOType);
                 }
-                if (gtaoPass->IsEnabled()) {
+
+                // 只有在AO开启时才显示参数
+                if (currentAOType > 0) {
                     float aoRadius = gtaoPass->GetRadius();
                     if (ImGui::SliderFloat("AO Radius", &aoRadius, 0.1f, 5.0f)) {
                         gtaoPass->SetRadius(aoRadius);
@@ -884,13 +889,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     if (ImGui::SliderFloat("AO Intensity", &aoIntensity, 0.1f, 5.0f)) {
                         gtaoPass->SetIntensity(aoIntensity);
                     }
-                    int sliceCount = gtaoPass->GetSliceCount();
-                    if (ImGui::SliderInt("AO Slices", &sliceCount, 1, 8)) {
-                        gtaoPass->SetSliceCount(sliceCount);
-                    }
-                    int stepsPerSlice = gtaoPass->GetStepsPerSlice();
-                    if (ImGui::SliderInt("AO Steps/Slice", &stepsPerSlice, 1, 8)) {
-                        gtaoPass->SetStepsPerSlice(stepsPerSlice);
+
+                    // GTAO特有参数
+                    if (currentAOType == 2) {
+                        int sliceCount = gtaoPass->GetSliceCount();
+                        if (ImGui::SliderInt("AO Slices", &sliceCount, 1, 8)) {
+                            gtaoPass->SetSliceCount(sliceCount);
+                        }
+                        int stepsPerSlice = gtaoPass->GetStepsPerSlice();
+                        if (ImGui::SliderInt("AO Steps/Slice", &stepsPerSlice, 1, 8)) {
+                            gtaoPass->SetStepsPerSlice(stepsPerSlice);
+                        }
                     }
                 }
 

@@ -7,6 +7,13 @@
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 
+// AO类型枚举
+enum class AOType {
+    Off = 0,    // 关闭
+    SSAO = 1,   // Screen Space Ambient Occlusion
+    GTAO = 2    // Ground Truth Ambient Occlusion
+};
+
 // GTAO (Ground Truth Ambient Occlusion) Pass
 // 在 LightPass 之后、ScreenPass 之前执行
 // 输入：
@@ -52,25 +59,45 @@ public:
     void Resize(int newWidth, int newHeight);
 
     // 获取最终AO输出纹理（供ScreenPass/延迟光照使用）
-    // 当GTAO关闭时返回默认白色纹理（AO=1，无遮蔽）
+    // 当AO关闭时返回默认白色纹理（AO=1，无遮蔽）
     ID3D12Resource* GetAOTexture() const {
-        if (m_enabled) return m_aoBlurredRT.Get();
+        if (m_aoType != AOType::Off) return m_aoBlurredRT.Get();
         return m_defaultWhiteTexture.Get();
     }
 
     // 获取原始AO纹理（模糊前，用于调试）
     ID3D12Resource* GetRawAOTexture() const { return m_aoRawRT.Get(); }
 
-    // 启用/禁用
-    void SetEnabled(bool enabled) { m_enabled = enabled; }
-    bool IsEnabled() const { return m_enabled; }
+    // AO类型设置
+    void SetAOType(int type) { m_aoType = static_cast<AOType>(type); }
+    int GetAOType() const { return static_cast<int>(m_aoType); }
+
+    // 启用/禁用（保留兼容性）
+    void SetEnabled(bool enabled) { m_aoType = enabled ? AOType::SSAO : AOType::Off; }
+    bool IsEnabled() const { return m_aoType != AOType::Off; }
 
     // GTAO 参数
-    void SetRadius(float radius) { m_radius = radius; }
-    float GetRadius() const { return m_radius; }
+    void SetRadius(float radius) {
+        if (m_aoType == AOType::SSAO) {
+            m_ssaoRadius = radius;
+        } else if (m_aoType == AOType::GTAO) {
+            m_gtaoRadius = radius;
+        }
+    }
+    float GetRadius() const {
+        return (m_aoType == AOType::SSAO) ? m_ssaoRadius : m_gtaoRadius;
+    }
 
-    void SetIntensity(float intensity) { m_intensity = intensity; }
-    float GetIntensity() const { return m_intensity; }
+    void SetIntensity(float intensity) {
+        if (m_aoType == AOType::SSAO) {
+            m_ssaoIntensity = intensity;
+        } else if (m_aoType == AOType::GTAO) {
+            m_gtaoIntensity = intensity;
+        }
+    }
+    float GetIntensity() const {
+        return (m_aoType == AOType::SSAO) ? m_ssaoIntensity : m_gtaoIntensity;
+    }
 
     void SetSliceCount(int count) { m_sliceCount = count; }
     int GetSliceCount() const { return m_sliceCount; }
@@ -138,11 +165,17 @@ private:
     ComPtr<ID3D12Resource> m_defaultWhiteTexture;
 
     // 参数
-    float m_radius = 2.5f;          // AO采样半径（世界空间）- 推荐默认值
-    float m_intensity = 5.0f;       // AO强度 - 推荐默认值
-    int m_sliceCount = 8;           // 方向切片数（GTAO水平扫描方向数）
-    int m_stepsPerSlice = 8;        // 每个切片的步进数
-    bool m_enabled = true;
+    // SSAO参数
+    float m_ssaoRadius = 2.5f;       // SSAO采样半径
+    float m_ssaoIntensity = 5.0f;    // SSAO强度
+
+    // GTAO参数
+    float m_gtaoRadius = 1.0f;       // GTAO采样半径
+    float m_gtaoIntensity = 1.0f;    // GTAO强度
+    int m_sliceCount = 8;            // 方向切片数（GTAO专用）
+    int m_stepsPerSlice = 8;         // 每个切片的步进数（GTAO专用）
+
+    AOType m_aoType = AOType::SSAO;  // AO类型（默认SSAO）
 
     // 帧计数器（用于时域噪声旋转）
     int m_frameCounter = 0;
@@ -157,7 +190,7 @@ struct GtaoConstants {
     int sliceCount;              // 方向切片数
     int stepsPerSlice;           // 每个切片步进数
     int frameCounter;            // 帧计数器（时域旋转）
+    int aoType;                  // AO类型 (0=Off, 1=SSAO, 2=GTAO)
     float falloffStart;          // 衰减开始距离
     float falloffEnd;            // 衰减结束距离
-    float padding;               // 对齐
 };

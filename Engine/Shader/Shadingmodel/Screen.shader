@@ -216,7 +216,7 @@ Shader "Screen"
             // 采样GTAO（t6由编译器注入）
             // GTAO关闭时，GTAOTexture是1x1白色纹理，采样值为1.0（无遮蔽）
             // 使用Clamp采样器避免边缘处纹理坐标环绕导致的伪影
-            float gtao = GTAOTexture.Sample(gSamPointClamp, input.uv).r;
+            float gtao = clamp(GTAOTexture.Sample(gSamPointClamp, input.uv).r,0.65,1);
             float ao = materialAO * gtao;
 
             // 计算视线方向和反射方向

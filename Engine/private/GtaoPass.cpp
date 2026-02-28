@@ -123,14 +123,24 @@ void GtaoPass::UpdateConstants() {
                                      static_cast<float>(m_viewportHeight));
     constants.inverseResolution = XMFLOAT2(1.0f / m_viewportWidth,
                                             1.0f / m_viewportHeight);
-    constants.aoRadius = m_radius;
-    constants.aoIntensity = m_intensity;
-    constants.sliceCount = m_sliceCount;
-    constants.stepsPerSlice = m_stepsPerSlice;
+
+    // 根据AO类型使用不同的参数
+    if (m_aoType == AOType::SSAO) {
+        constants.aoRadius = m_ssaoRadius;
+        constants.aoIntensity = m_ssaoIntensity;
+        constants.sliceCount = 0;  // SSAO不使用
+        constants.stepsPerSlice = 0;  // SSAO不使用
+    } else if (m_aoType == AOType::GTAO) {
+        constants.aoRadius = m_gtaoRadius;
+        constants.aoIntensity = m_gtaoIntensity;
+        constants.sliceCount = m_sliceCount;
+        constants.stepsPerSlice = m_stepsPerSlice;
+    }
+
     constants.frameCounter = m_frameCounter;
-    constants.falloffStart = m_radius * 0.6f;   // 衰减开始 = 半径的60%（削弱一半范围）
-    constants.falloffEnd = m_radius;              // 衰减结束 = 半径
-    constants.padding = 0.0f;
+    constants.aoType = static_cast<int>(m_aoType);
+    constants.falloffStart = constants.aoRadius * 0.6f;
+    constants.falloffEnd = constants.aoRadius;
 
     UINT8* pData;
     CD3DX12_RANGE readRange(0, 0);
@@ -195,7 +205,7 @@ void GtaoPass::Render(ID3D12GraphicsCommandList* cmdList,
                        ID3D12RootSignature* rootSig,
                        ID3D12Resource* depthBuffer,
                        ID3D12Resource* normalRT) {
-    if (!m_enabled) return;
+    if (m_aoType == AOType::Off) return;  // AO关闭时不渲染
 
     // 更新常量缓冲区
     UpdateConstants();
