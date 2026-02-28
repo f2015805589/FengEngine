@@ -138,8 +138,8 @@ private:
     ComPtr<ID3D12Resource> m_defaultWhiteTexture;
 
     // 参数
-    float m_radius = 0.5f;          // AO采样半径（世界空间）
-    float m_intensity = 1.0f;       // AO强度
+    float m_radius = 2.5f;          // AO采样半径（世界空间）- 推荐默认值
+    float m_intensity = 5.0f;       // AO强度 - 推荐默认值
     int m_sliceCount = 8;           // 方向切片数（GTAO水平扫描方向数）
     int m_stepsPerSlice = 8;        // 每个切片的步进数
     bool m_enabled = true;
