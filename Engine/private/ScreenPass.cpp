@@ -73,6 +73,13 @@ void ScreenPass::CreateInputSRVs(ID3D12GraphicsCommandList* commandList,
         srvDesc.Texture2D.MipLevels = 1;
         srvDesc.Texture2D.MostDetailedMip = 0;
         gD3D12Device->CreateShaderResourceView(shadowMap, &srvDesc, srvHandle);
+    } else {
+        // shadowmap关闭时使用白色纹理（表示无阴影，完全照亮）
+        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        gD3D12Device->CreateShaderResourceView(m_defaultWhiteTexture.Get(), &srvDesc, srvHandle);
     }
     srvHandle.Offset(1, m_srvDescriptorSize);
 

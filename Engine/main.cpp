@@ -636,12 +636,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             //LightPass=======================================
             // 执行LightPass（包含Shadow Map生成和光照计算）
-            commandList->Reset(commandAllocator, shadowPso);
-            commandList->BeginEvent(0, L"LightPass", (UINT)(wcslen(L"LightPass") * sizeof(wchar_t)));
-            lightPass->RenderDirectLight(commandList, shadowPso, lightPso, rootSignature, g_scene, gDSRT);
-            commandList->EndEvent();
-            EndCommandList();
-            WaitForCompletionOfCommandList();  // Wait for LightPass to complete
+            // 只有在shadowmap开启时才执行
+            if (g_scene->IsShadowmapEnabled()) {
+                commandList->Reset(commandAllocator, shadowPso);
+                commandList->BeginEvent(0, L"LightPass", (UINT)(wcslen(L"LightPass") * sizeof(wchar_t)));
+                lightPass->RenderDirectLight(commandList, shadowPso, lightPso, rootSignature, g_scene, gDSRT);
+                commandList->EndEvent();
+                EndCommandList();
+                WaitForCompletionOfCommandList();  // Wait for LightPass to complete
+            }
 
             //GtaoPass=======================================
             // 执行GTAO（在LightPass之后、SkyPass之前）
@@ -725,11 +728,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             ComPtr<ID3D12Resource> skyTexture = g_scene->ReturnSkyCube();
             // 渲染（使用深度缓冲代替Position RT，传入LightPass的阴影图和GTAO纹理）
             // GetAOTexture() 在GTAO关闭时会返回默认白色纹理（AO=1，无遮蔽）
+            // 当shadowmap关闭时，传入nullptr，ScreenPass会使用白色纹理
             screenPass->Render(commandList, deferredLightingPso, rootSignature,
                 sceneRTs[0], sceneRTs[1], sceneRTs[2],  // 3个GBuffer RT
                 gDSRT,  // 深度缓冲用于位置重构
                 skyTexture,
-                lightPass->GetLightRT(),  // LightPass输出的阴影图
+                g_scene->IsShadowmapEnabled() ? lightPass->GetLightRT() : nullptr,  // shadowmap关闭时传nullptr
                 gtaoPass->GetAOTexture());  // GTAO输出（关闭时为白色纹理）
 
             // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧和BeginRenderToSwapChain使用
@@ -959,6 +963,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 const char* shadowModes[] = { "Hard Shadow", "PCF", "PCSS" };
                 if (ImGui::Combo("Shadow Mode", &shadowMode, shadowModes, 3)) {
                     g_scene->SetShadowMode(shadowMode);
+                }
+
+                // Shadowmap开关
+                static bool shadowmapEnabled = true;
+                if (ImGui::Checkbox("Enable Shadowmap", &shadowmapEnabled)) {
+                    g_scene->SetShadowmapEnabled(shadowmapEnabled);
                 }
 
                 if (ImGui::Button("close")) showMainLightWindow = false;

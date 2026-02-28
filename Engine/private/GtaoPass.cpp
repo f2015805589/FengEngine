@@ -128,7 +128,7 @@ void GtaoPass::UpdateConstants() {
     constants.sliceCount = m_sliceCount;
     constants.stepsPerSlice = m_stepsPerSlice;
     constants.frameCounter = m_frameCounter;
-    constants.falloffStart = m_radius * 0.2f;   // 衰减开始 = 半径的20%
+    constants.falloffStart = m_radius * 0.6f;   // 衰减开始 = 半径的60%（削弱一半范围）
     constants.falloffEnd = m_radius;              // 衰减结束 = 半径
     constants.padding = 0.0f;
 
