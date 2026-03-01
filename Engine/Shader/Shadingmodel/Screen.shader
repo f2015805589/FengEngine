@@ -132,6 +132,17 @@ Shader "Screen"
             return EnergyTerms.W;
         }
 
+        //AO
+        // 多次反弹近似（基于 Frostbite 的方法）
+        float3 MultiBounceAO(float ao, float3 albedo)
+        {
+           float3 a = 2.0404 * albedo - 0.3324;
+           float3 b = -4.7951 * albedo + 0.6417;
+           float3 c = 2.7552 * albedo + 0.6903;
+    
+           return max(ao, ((ao * a + b) * ao + c) * ao);
+        }
+
         // UE5 风格 DefaultLit BRDF
         float3 DefaultBRDF(float3 N, float3 V, float3 L, float3 albedo, float metallic, float roughness)
         {
@@ -216,8 +227,8 @@ Shader "Screen"
             // 采样GTAO（t6由编译器注入）
             // GTAO关闭时，GTAOTexture是1x1白色纹理，采样值为1.0（无遮蔽）
             // 使用Clamp采样器避免边缘处纹理坐标环绕导致的伪影
-            float gtao = clamp(GTAOTexture.Sample(gSamPointClamp, input.uv).r,0.65,1);
-            float ao = materialAO * gtao;
+            float gtao = GTAOTexture.Sample(gSamPointClamp, input.uv).r;
+            float ao = clamp(materialAO * gtao,0.03,1);
 
             // 计算视线方向和反射方向
             float3 N = normalize(normal.xyz);
@@ -259,7 +270,7 @@ Shader "Screen"
             specularIBL *= ComputeEnergyConservation(EnergyTerms);
 
             // 合并环境光
-            float3 ambient = (diffuseIBL + specularIBL) * Skylight * ao;
+            float3 ambient = (diffuseIBL + specularIBL) * Skylight * MultiBounceAO(ao,baseColor.xyz);
 
             // ==================== 组合最终颜色 ====================
             float3 finalColor = float3(0, 0, 0);

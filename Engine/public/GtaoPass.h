@@ -175,7 +175,7 @@ private:
     int m_sliceCount = 8;            // 方向切片数（GTAO专用）
     int m_stepsPerSlice = 8;         // 每个切片的步进数（GTAO专用）
 
-    AOType m_aoType = AOType::SSAO;  // AO类型（默认SSAO）
+    AOType m_aoType = AOType::GTAO;  // AO类型（默认GTAO）
 
     // 帧计数器（用于时域噪声旋转）
     int m_frameCounter = 0;

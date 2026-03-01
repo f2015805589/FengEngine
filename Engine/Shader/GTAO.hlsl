@@ -144,284 +144,439 @@ float FalloffFunction(float distanceSq)
     return saturate((falloffEndSq - distanceSq) / (falloffEndSq - falloffStartSq + 1e-6));
 }
 
-// ==================== SSAO 实现 ====================
+// ==================== SSAO 核心算法 ====================
+// 参考：Screen Space Ambient Occlusion (Crytek)
+//
+// 核心思路：
+// 在当前像素的法线半球内随机采样多个点，将这些点投影到屏幕空间，
+// 比较采样点的深度与实际深度缓冲中的深度，判断是否被遮挡。
+// 被遮挡的样本越多，AO 值越大（越暗）。
+//
+// 关键定义（左手系 LH，视图空间）：
+// - viewPos.z > 0（物体在相机前方）
+// - viewNormal：视图空间法线，指向相机方向
+// - 采样半球：以 viewNormal 为轴的半球，半径为 AORadius
+// - 深度比较：如果采样点在实际几何体内部，则认为被遮挡
+//
+// 算法步骤：
+// 1. 在法线半球内生成随机采样点
+// 2. 将采样点投影到屏幕空间，获取该位置的实际深度
+// 3. 比较采样点深度与实际深度，判断遮挡
+// 4. 应用距离衰减和范围检查
+// 5. 累加遮挡贡献，归一化输出
+
 float ComputeSSAO(float2 uv, float3 viewPos, float3 viewNormal, float2 pixelPos)
 {
-    float totalAO = 0.0;
+    float occlusion = 0.0;
     const int sampleCount = 16;
+    
+    // 噪声旋转角度（改善采样分布）
+    float noiseAngle = InterleavedGradientNoise(pixelPos) * 2.0 * PI;
+    float cosNoise = cos(noiseAngle);
+    float sinNoise = sin(noiseAngle);
 
     for (int i = 0; i < sampleCount; i++)
     {
-        // 生成随机采样方向（在法线半球内）
-        float angle1 = (float(i) / float(sampleCount) + InterleavedGradientNoise(pixelPos) * 0.1) * 2.0 * PI;
-        float angle2 = sqrt(float(i) / float(sampleCount)) * HALF_PI;
-
-        // 球面坐标转换为笛卡尔坐标
-        float3 sampleDir;
-        sampleDir.x = sin(angle2) * cos(angle1);
-        sampleDir.y = sin(angle2) * sin(angle1);
-        sampleDir.z = cos(angle2);
-
-        // 确保采样方向在法线半球内
-        if (dot(sampleDir, viewNormal) < 0.0)
-        {
-            sampleDir = -sampleDir;
-        }
-
-        // 采样距离
-        float sampleRadius = AORadius * (0.1 + 0.9 * float(i) / float(sampleCount));
-
-        // 计算采样点的视图空间位置
-        float3 samplePos = viewPos + sampleDir * sampleRadius;
-
-        // 投影到屏幕空间
+        // ========== 生成半球采样方向 ==========
+        // 使用 Fibonacci 球面分布 + 噪声
+        float t = (float(i) + 0.5) / float(sampleCount); // [0, 1]
+        
+        // 极角（从法线方向）：使用 sqrt 让采样更集中在法线附近
+        float phi = acos(1.0 - t); // [0, π/2] 半球
+        
+        // 方位角：黄金角分布 + 噪声
+        float theta = (float(i) * 2.399963229728653) + noiseAngle; // 黄金角 ≈ 137.5°
+        
+        // 球面坐标转笛卡尔坐标（局部空间，Z 轴为法线方向）
+        float sinPhi = sin(phi);
+        float3 localDir;
+        localDir.x = sinPhi * cos(theta);
+        localDir.y = sinPhi * sin(theta);
+        localDir.z = cos(phi);
+        
+        // ========== 构建切线空间到视图空间的变换 ==========
+        // 找一个垂直于法线的切线向量
+        float3 tangent = abs(viewNormal.z) < 0.999 
+            ? normalize(cross(viewNormal, float3(0, 0, 1))) 
+            : normalize(cross(viewNormal, float3(1, 0, 0)));
+        float3 bitangent = cross(viewNormal, tangent);
+        
+        // 将局部方向转换到视图空间
+        float3 sampleDir = localDir.x * tangent + localDir.y * bitangent + localDir.z * viewNormal;
+        
+        // ========== 计算采样距离（非线性分布）==========
+        // 使用平方分布让采样点更集中在近处
+        float sampleDist = AORadius * (0.1 + 0.9 * t * t);
+        
+        // ========== 计算采样点的视图空间位置 ==========
+        float3 samplePos = viewPos + sampleDir * sampleDist;
+        
+        // ========== 投影到屏幕空间 ==========
         float4 sampleClipPos = mul(ProjectionMatrix, float4(samplePos, 1.0));
-        sampleClipPos.xy /= sampleClipPos.w;
-        float2 sampleUV = sampleClipPos.xy * 0.5 + 0.5;
+        
+        // 透视除法
+        float3 sampleNDC = sampleClipPos.xyz / sampleClipPos.w;
+        
+        // NDC 转 UV（注意 Y 轴翻转）
+        float2 sampleUV = sampleNDC.xy * 0.5 + 0.5;
         sampleUV.y = 1.0 - sampleUV.y;
-
-        // 检查是否在屏幕内
-        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
+        
+        // ========== 边界检查 ==========
+        if (any(sampleUV < 0.0) || any(sampleUV > 1.0))
         {
             continue;
         }
-
-        // 采样深度
+        
+        // ========== 采样深度缓冲 ==========
         float sampleDepth = DepthTexture.SampleLevel(PointClampSampler, sampleUV, 0);
+        
+        // 跳过天空盒
         if (sampleDepth >= 1.0)
         {
             continue;
         }
-
-        // 重建采样点的实际视图空间位置
-        float3 actualSamplePos = ReconstructViewPosition(sampleUV, sampleDepth);
-
-        // 比较深度
-        float depthDiff = samplePos.z - actualSamplePos.z;
-
-        // 范围检查
+        
+        // ========== 重建实际几何体的视图空间位置 ==========
+        float3 actualPos = ReconstructViewPosition(sampleUV, sampleDepth);
+        
+        // ========== 深度比较（遮挡判断）==========
+        // depthDiff > 0：采样点在实际几何体后面（被遮挡）
+        // depthDiff < 0：采样点在实际几何体前面（未遮挡）
+        float depthDiff = samplePos.z - actualPos.z;
+        
+        // ========== 范围检查 ==========
+        // 1. depthDiff > 0.01：避免自遮挡（深度精度问题）
+        // 2. depthDiff < AORadius：只考虑合理范围内的遮挡
         if (depthDiff > 0.01 && depthDiff < AORadius)
         {
-            float distance = length(actualSamplePos - viewPos);
-            float falloff = saturate(1.0 - distance / AORadius);
-            float occlusionWeight = saturate(depthDiff / AORadius);
-            totalAO += falloff * occlusionWeight;
+            // ========== 距离衰减 ==========
+            // 采样点离中心越远，权重越低
+            float distance = length(actualPos - viewPos);
+            float rangeFalloff = saturate(1.0 - distance / AORadius);
+            
+            // ========== 深度衰减 ==========
+            // 深度差越大，遮挡越明显，但也要衰减避免过度遮挡
+            float depthFalloff = saturate(depthDiff / (AORadius * 0.5));
+            
+            // ========== 法线权重（可选优化）==========
+            // 如果实际几何体的法线背向采样方向，减少遮挡贡献
+            // 这需要法线缓冲，如果没有可以省略
+            // float3 actualNormal = LoadNormal(sampleUV);
+            // float normalWeight = saturate(dot(actualNormal, -sampleDir));
+            
+            // ========== 累加遮挡 ==========
+            float occlusionWeight = rangeFalloff * depthFalloff;
+            occlusion += occlusionWeight;
         }
     }
-
-    // 归一化并反转
-    totalAO = 1.0 - saturate(totalAO / float(sampleCount) * AOIntensity);
-    return totalAO;
+    
+    // ========== 归一化并转换为 AO ==========
+    // 归一化到 [0, 1]
+    occlusion = occlusion / float(sampleCount);
+    
+    // 应用强度
+    occlusion = saturate(occlusion * AOIntensity);
+    
+    // 转换为 AO（1 = 无遮挡，0 = 完全遮挡）
+    float ao = 1.0 - occlusion;
+    
+    return ao;
 }
 
-// ==================== GTAO 核心算法 ====================
-// 参考：Practical Realtime Strategies for Accurate Indirect Occlusion (Jimenez et al.)
-// 以及 Ground Truth Ambient Occlusion (Activision)
+
+// ==================== XeGTAO 核心算法 ====================
+// 参考：XeGTAO - Intel's optimized implementation of GTAO
+// 论文：https://www.activision.com/cdn/research/Practical_Real_Time_Strategies_for_Accurate_Indirect_Occlusion_NEW%20VERSION_COLOR.pdf
+// 实现：https://github.com/GameTechDev/XeGTAO
 //
-// 核心思路：
-// 对每个屏幕空间方向（切片），定义一个由 viewDir 和该方向构成的平面。
-// 在此平面内，将法线投影得到投影法线角度 n，然后在正负两侧
-// 通过射线步进找到最大的 horizon angle（h0, h1），最后用 cos 权重积分
-// 计算被遮挡的可见性。
+// ========== 算法概述 ==========
+// GTAO 通过在屏幕空间的多个方向（切片）上采样深度，计算每个方向的地平线角度，
+// 然后使用解析积分公式计算可见性。最终的 AO = 1 - visibility。
 //
-// 关键定义（左手系 LH）：
-// - 视图空间中物体在 +Z 方向，viewPos.z > 0
-// - viewDir = normalize(-viewPos)，大致指向 (0,0,-1) 方向（从表面朝向相机）
-// - horizon angle 是采样向量在切片平面内相对于 viewDir 的角度
-//   （使用 atan2 计算，向法线方向为正角度）
-// - 法线角度 n 也是在同一切片平面内相对于 viewDir 的角度
+// ========== 坐标系统 ==========
+// 左手系（LH），视图空间：
+// - X 轴：右
+// - Y 轴：上
+// - Z 轴：前（深度增加方向）
+// - 物体在相机前方，viewPos.z > 0
+// - viewDir = normalize(-viewPos)，从表面指向相机
+//
+// ========== 切片平面（Slice Plane）==========
+// 对于每个切片角度 phi：
+// 1. 屏幕空间方向：omega = (cos(phi), sin(phi))
+// 2. 视图空间方向：directionVec = (cos(phi), sin(phi), 0)
+// 3. 正交化方向：orthoDirectionVec = directionVec - dot(directionVec, viewDir) * viewDir
+//    （投影到垂直于 viewDir 的平面）
+// 4. 切片平面法向量：axisVec = normalize(cross(orthoDirectionVec, viewDir))
+//    （垂直于切片平面，用于投影法线）
+//
+// ========== 投影法线（Projected Normal）==========
+// 1. 投影：projectedNormalVec = viewNormal - axisVec * dot(viewNormal, axisVec)
+//    （移除法线在 axisVec 方向的分量，得到切片平面内的投影）
+// 2. 归一化：projectedNormalVec /= length(projectedNormalVec)
+// 3. 角度计算：
+//    - cosNorm = dot(projectedNormalVec, viewDir)
+//    - signNorm = sign(dot(orthoDirectionVec, projectedNormalVec))
+//    - n = signNorm * acos(cosNorm)
+//    n 是投影法线相对于 viewDir 的带符号角度
+//
+// ========== 地平线跟踪（Horizon Tracking）==========
+// XeGTAO 在余弦空间跟踪地平线，而非角度空间：
+// 1. 初始化：
+//    - lowHorizonCos0 = cos(n + π/2)  // 法线下方 90°
+//    - lowHorizonCos1 = cos(n - π/2)  // 法线上方 90°
+//    - horizonCos0 = lowHorizonCos0   // 正方向地平线余弦
+//    - horizonCos1 = lowHorizonCos1   // 负方向地平线余弦
+//
+// 2. 采样更新：
+//    对于每个采样点：
+//    - sampleHorizonVec = normalize(samplePos - viewPos)
+//    - shc = dot(sampleHorizonVec, viewDir)  // 采样点的地平线余弦
+//    - weight = 距离衰减权重（远处样本权重降低）
+//    - shc = lerp(lowHorizonCos, shc, weight)  // 应用衰减
+//    - horizonCos = max(horizonCos, shc)  // 更新最大仰角
+//
+// 3. 为什么用余弦空间？
+//    - 减少 acos 调用（只在最后转换一次）
+//    - max() 操作在余弦空间等价于角度空间的 max()（因为 cos 在 [0,π] 单调递减）
+//    - lerp() 在余弦空间近似角度空间的 lerp（虽然不完全等价，但足够快且质量可接受）
+//
+// ========== 距离衰减（Falloff）==========
+// XeGTAO 使用线性衰减 + 薄物体补偿：
+// 1. 薄物体补偿距离：
+//    falloffBase = length(float3(delta.xy, delta.z * (1 + thinOccluderCompensation)))
+//    增大 Z 方向权重，让后方样本更快衰减，减少薄物体过度遮蔽
+//
+// 2. 线性衰减：
+//    weight = saturate(falloffBase * falloffMul + falloffAdd)
+//    其中 falloffMul = -1 / falloffRange, falloffAdd = falloffFrom / falloffRange + 1
+//
+// 3. 应用衰减：
+//    shc = lerp(lowHorizonCos, shc, weight)
+//    远处样本被拉回到 lowHorizonCos（法线下方 90°），减少影响
+//
+// ========== 采样分布（Sample Distribution）==========
+// 1. 基础分布：s = (step + noise) / stepsPerSlice  // [0, 1]
+// 2. 非线性调整：s = pow(s, sampleDistributionPower)  // 默认 2.0
+//    让采样点集中在近处（更重要的区域）
+// 3. 最小距离：s += minS  // 避免采样中心像素
+// 4. 像素对齐：sampleOffset = round(s * omega) * pixelSize
+//    对齐到像素中心，减少采样位置与深度不匹配的伪影
+//
+// ========== 可见性积分（Visibility Integration）==========
+// 论文 Algorithm 1 的解析积分公式：
+// 1. 转换回角度：
+//    h0 = -acos(horizonCos1)  // 负方向地平线角
+//    h1 = acos(horizonCos0)   // 正方向地平线角
+//
+// 2. 计算积分：
+//    iarc0 = (cosNorm + 2*h0*sin(n) - cos(2*h0-n)) / 4
+//    iarc1 = (cosNorm + 2*h1*sin(n) - cos(2*h1-n)) / 4
+//
+// 3. 加权可见性：
+//    localVisibility = projectedNormalVecLength * (iarc0 + iarc1)
+//    projectedNormalVecLength 表示法线在切片平面的投影长度，
+//    越接近切片平面，该切片对可见性的贡献越大
+//
+// 4. 投影法线长度修正：
+//    projectedNormalVecLength = lerp(projectedNormalVecLength, 1.0, 0.05)
+//    减少高坡度表面（法线几乎垂直于切片平面）的过暗问题
+//
+// ========== 最终输出 ==========
+// 1. 归一化：visibility /= sliceCount
+// 2. 转换为 AO：ao = 1 - saturate(visibility)
+// 3. 应用强度：ao = pow(ao, AOIntensity)
+//
+// ========== 性能优化 ==========
+// - 余弦空间计算：减少三角函数调用
+// - 像素对齐：减少伪影，允许更少的采样数
+// - 非线性采样：集中采样在重要区域
+// - R1 序列噪声：低差异序列，更好的时空稳定性
+// - 小半径淡出：避免半径过小时的突变和噪声
+
 float ComputeGTAO(float2 uv, float3 viewPos, float3 viewNormal, float2 pixelPos)
 {
-    // 视图方向（从表面指向相机）
-    // 左手系（LH）：视图空间中物体在 +Z 方向，viewPos.z > 0
-    // 从表面指向相机 = normalize(-viewPos)，方向大致指向 (0,0,-1)
     float3 viewDir = normalize(-viewPos);
+    float viewspaceZ = viewPos.z;
 
-    // 在屏幕空间的采样半径（根据距离调整）
-    // 投影半径：世界空间半径 -> 屏幕空间像素
-    // 注意：左手系（LH），viewPos.z > 0，所以直接用 viewPos.z
-    float projectedRadius = AORadius * ProjectionMatrix[0][0] / viewPos.z;
-    float screenRadius = projectedRadius * ScreenSize.x * 0.5;
+    // 计算屏幕空间半径
+    float pixelDirRBViewspaceSizeAtCenterZ = viewspaceZ * (ProjectionMatrix[0][0] * InverseScreenSize.x);
+    float screenRadius = AORadius / pixelDirRBViewspaceSizeAtCenterZ;
 
-    // 如果投影半径太小（< 1像素），不计算AO
-    if (screenRadius < 1.0)
+    // 小半径淡出
+    float visibility = saturate((10.0 - screenRadius) / 100.0) * 0.5;
+    
+    if (screenRadius < 1.3)
     {
-        return 1.0;
+        return 1.0 - saturate(visibility);
     }
 
-    // 限制最大屏幕空间步长
-    screenRadius = min(screenRadius, 256.0);
+    screenRadius = min(screenRadius, 100.0);
 
-    // 步长（屏幕空间像素）
-    float stepSize = screenRadius / (float)AOStepsPerSlice;
+    // 噪声（使用 R2 序列或 IGN）
+    float noiseSlice = InterleavedGradientNoise(pixelPos);
+    float noiseSample = InterleavedGradientNoise(pixelPos + float2(0.5, 0.5));
 
-    // 时域旋转噪声：每帧旋转基础角度，减少banding
-    float noiseAngle = InterleavedGradientNoise(pixelPos + float2(FrameCounter * 0.6180339887, 0.0)) * PI;
-    float noiseStep = InterleavedGradientNoise(pixelPos * 1.37 + float2(0.0, FrameCounter * 0.6180339887));
-
-    // ========== GTAO 方向切片积分 ==========
-    float totalAO = 0.0;
+    // 采样参数
+    const float pixelTooCloseThreshold = 1.3;
+    const float minS = pixelTooCloseThreshold / screenRadius;
+    const float sampleDistributionPower = 2.0; // 可调整采样分布
+    
+    // 距离衰减参数
+    float falloffRange = AORadius * 0.5; // 衰减范围
+    float falloffFrom = AORadius - falloffRange;
+    float falloffMul = -1.0 / falloffRange;
+    float falloffAdd = falloffFrom / falloffRange + 1.0;
+    
+    // 薄物体补偿
+    const float thinOccluderCompensation = 0.0; // 0-1，越大越减少薄物体遮蔽
 
     for (int slice = 0; slice < AOSliceCount; slice++)
     {
-        // 方向角度：均匀分布 + 时域噪声旋转
-        float phi = (PI / (float)AOSliceCount) * ((float)slice + noiseAngle);
+        // 计算切片角度
+        float sliceK = (float(slice) + noiseSlice) / float(AOSliceCount);
+        float phi = sliceK * PI;
+        float cosPhi = cos(phi);
+        float sinPhi = sin(phi);
+        float2 omega = float2(cosPhi, -sinPhi);
+        
+        // 转换为屏幕像素单位
+        omega *= screenRadius;
 
-        // 屏幕空间方向（2D）
-        float2 direction = float2(cos(phi), sin(phi));
-
-        // 构建切片平面的3D方向向量
-        // 屏幕空间方向对应视图空间中的一个水平方向
-        // 由于视图空间中相机看向 -Z，屏幕X对应视图X，屏幕Y对应视图Y
-        float3 sliceDirVS = float3(direction.x, direction.y, 0.0);
-        sliceDirVS = normalize(sliceDirVS);
-
-        // 切片平面的法向量（垂直于 viewDir 和 sliceDir 构成的平面）
-        float3 slicePlaneNormal = normalize(cross(sliceDirVS, viewDir));
-
-        // 将法线投影到切片平面
-        // projectedNormal = N - (N·planeNormal)*planeNormal
-        float3 projectedNormal = viewNormal - slicePlaneNormal * dot(viewNormal, slicePlaneNormal);
-        float projNormalLen = length(projectedNormal);
-
-        // 如果投影法线长度接近0，说明法线几乎垂直于切片平面，跳过
-        if (projNormalLen < 1e-4)
+        // 切片方向向量（视图空间）
+        float3 directionVec = float3(cosPhi, sinPhi, 0.0);
+        
+        // 正交化方向向量（投影到垂直于视图方向的平面）
+        float3 orthoDirectionVec = directionVec - dot(directionVec, viewDir) * viewDir;
+        
+        // 轴向量（垂直于切片平面）
+        float3 axisVec = normalize(cross(orthoDirectionVec, viewDir));
+        
+        // 投影法线到切片平面
+        float3 projectedNormalVec = viewNormal - axisVec * dot(viewNormal, axisVec);
+        float projectedNormalVecLength = length(projectedNormalVec);
+        
+        if (projectedNormalVecLength < 0.001)
         {
-            totalAO += 1.0; // 无遮蔽
+            visibility += 1.0;
             continue;
         }
+        
+        projectedNormalVec /= projectedNormalVecLength;
 
-        projectedNormal /= projNormalLen;
+        // 计算法线角度
+        float signNorm = sign(dot(orthoDirectionVec, projectedNormalVec));
+        float cosNorm = saturate(dot(projectedNormalVec, viewDir));
+        float n = signNorm * acos(cosNorm);
 
-        // 计算法线在切片平面内相对于 viewDir 的角度 n
-        // n > 0 表示法线倾向于正方向（direction侧）
-        // n < 0 表示法线倾向于负方向（-direction侧）
-        float cosN = clamp(dot(projectedNormal, viewDir), -1.0, 1.0);
-        float sinN = clamp(dot(projectedNormal, sliceDirVS), -1.0, 1.0);
-        float n = atan2(sinN, cosN);  // 法线角度，范围 [-π/2, π/2]
+        // 初始化地平线角度（余弦值）
+        const float lowHorizonCos0 = cos(n + HALF_PI);
+        const float lowHorizonCos1 = cos(n - HALF_PI);
+        float horizonCos0 = lowHorizonCos0;
+        float horizonCos1 = lowHorizonCos1;
 
-        // 对每个方向，在两侧找最大仰角
-        // h0: 正方向（+direction）的 horizon angle
-        // h1: 负方向（-direction）的 horizon angle
-        // 初始化为 -HALF_PI（视线方向以下 = 完全可见）
-        float h0 = -HALF_PI;
-        float h1 = -HALF_PI;
-
-        // 追踪每个方向是否有有效采样
-        // 如果整个方向的所有步进都在屏幕外或天空，则该方向视为无遮蔽
-        bool h0HasValidSample = false;
-        bool h1HasValidSample = false;
-
-        for (int step = 1; step <= AOStepsPerSlice; step++)
+        // 步进采样
+        for (int step = 0; step < AOStepsPerSlice; step++)
         {
-            float t = ((float)step + noiseStep) * stepSize;
-
-            // === 正方向采样 ===
+            // R1 序列噪声
+            const float stepBaseNoise = float(slice + step * AOStepsPerSlice) * 0.6180339887498948482;
+            float stepNoise = frac(noiseSample + stepBaseNoise);
+            
+            // 计算采样距离
+            float s = (float(step) + stepNoise) / float(AOStepsPerSlice);
+            s = pow(s, sampleDistributionPower); // 非线性分布
+            s += minS; // 避免采样中心像素
+            
+            // 采样偏移（像素单位）
+            float2 sampleOffset = s * omega;
+            float sampleOffsetLength = length(sampleOffset);
+            
+            // 对齐到像素中心（减少伪影）
+            sampleOffset = round(sampleOffset) * InverseScreenSize;
+            
+            // 正方向采样
+            float2 sampleUV0 = uv + sampleOffset;
+            if (all(sampleUV0 >= 0.0) && all(sampleUV0 <= 1.0))
             {
-                float2 sampleUV = uv + direction * t * InverseScreenSize;
-
-                // 超出屏幕边界：视为无遮蔽（不更新horizon angle）
-                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
+                float sampleDepth = DepthTexture.SampleLevel(PointClampSampler, sampleUV0, 0);
+                if (sampleDepth < 1.0)
                 {
-                    float sampleDepth = DepthTexture.SampleLevel(PointClampSampler, sampleUV, 0);
-                    // 天空像素也视为无遮蔽
-                    if (sampleDepth < 1.0)
-                    {
-                        float3 sampleViewPos = ReconstructViewPosition(sampleUV, sampleDepth);
-                        float3 horizonVec = sampleViewPos - viewPos;
-                        float distanceSq = dot(horizonVec, horizonVec);
-                        float falloff = FalloffFunction(distanceSq);
-
-                        float3 horizonDir = normalize(horizonVec);
-                        float cosH = dot(horizonDir, sliceDirVS);
-                        float sinH = dot(horizonDir, viewDir);
-                        float elevationAngle = atan2(sinH, cosH);
-
-                        float weightedAngle = lerp(-HALF_PI, elevationAngle, falloff);
-                        h0 = max(h0, weightedAngle);
-                        h0HasValidSample = true;
-                    }
+                    float3 samplePos = ReconstructViewPosition(sampleUV0, sampleDepth);
+                    float3 sampleDelta = samplePos - viewPos;
+                    float sampleDist = length(sampleDelta);
+                    
+                    // 归一化地平线向量
+                    float3 sampleHorizonVec = sampleDelta / sampleDist;
+                    
+                    // 薄物体补偿的距离衰减
+                    float falloffBase = length(float3(sampleDelta.xy, sampleDelta.z * (1.0 + thinOccluderCompensation)));
+                    float weight = saturate(falloffBase * falloffMul + falloffAdd);
+                    
+                    // 计算地平线余弦值
+                    float shc = dot(sampleHorizonVec, viewDir);
+                    
+                    // 应用权重
+                    shc = lerp(lowHorizonCos0, shc, weight);
+                    
+                    // 更新地平线
+                    horizonCos0 = max(horizonCos0, shc);
                 }
             }
 
-            // === 负方向采样 ===
+            // 负方向采样
+            float2 sampleUV1 = uv - sampleOffset;
+            if (all(sampleUV1 >= 0.0) && all(sampleUV1 <= 1.0))
             {
-                float2 sampleUV = uv - direction * t * InverseScreenSize;
-
-                // 超出屏幕边界：视为无遮蔽
-                if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 && sampleUV.y >= 0.0 && sampleUV.y <= 1.0)
+                float sampleDepth = DepthTexture.SampleLevel(PointClampSampler, sampleUV1, 0);
+                if (sampleDepth < 1.0)
                 {
-                    float sampleDepth = DepthTexture.SampleLevel(PointClampSampler, sampleUV, 0);
-                    // 天空像素也视为无遮蔽
-                    if (sampleDepth < 1.0)
-                    {
-                        float3 sampleViewPos = ReconstructViewPosition(sampleUV, sampleDepth);
-                        float3 horizonVec = sampleViewPos - viewPos;
-                        float distanceSq = dot(horizonVec, horizonVec);
-                        float falloff = FalloffFunction(distanceSq);
-
-                        float3 horizonDir = normalize(horizonVec);
-                        float cosH = dot(horizonDir, -sliceDirVS);
-                        float sinH = dot(horizonDir, viewDir);
-                        float elevationAngle = atan2(sinH, cosH);
-
-                        float weightedAngle = lerp(-HALF_PI, elevationAngle, falloff);
-                        h1 = max(h1, weightedAngle);
-                        h1HasValidSample = true;
-                    }
+                    float3 samplePos = ReconstructViewPosition(sampleUV1, sampleDepth);
+                    float3 sampleDelta = samplePos - viewPos;
+                    float sampleDist = length(sampleDelta);
+                    
+                    float3 sampleHorizonVec = sampleDelta / sampleDist;
+                    
+                    float falloffBase = length(float3(sampleDelta.xy, sampleDelta.z * (1.0 + thinOccluderCompensation)));
+                    float weight = saturate(falloffBase * falloffMul + falloffAdd);
+                    
+                    float shc = dot(sampleHorizonVec, viewDir);
+                    shc = lerp(lowHorizonCos1, shc, weight);
+                    
+                    horizonCos1 = max(horizonCos1, shc);
                 }
             }
         }
 
-        // 如果某个方向完全没有有效采样（全部在屏幕外或天空），
-        // 将该方向的horizon angle设为-HALF_PI（无遮蔽）
-        if (!h0HasValidSample) h0 = -HALF_PI;
-        if (!h1HasValidSample) h1 = -HALF_PI;
+        // 修正投影法线长度（减少高坡度过暗）
+        projectedNormalVecLength = lerp(projectedNormalVecLength, 1.0, 0.05);
 
-        // ========== 将 horizon angle 限制在法线半球内 ==========
-        h0 = clamp(h0, -HALF_PI, HALF_PI);
-        h1 = clamp(h1, -HALF_PI, HALF_PI);
+        // 将余弦值转回角度
+        float h0 = -acos(horizonCos1);
+        float h1 = acos(horizonCos0);
 
-        // ========== 积分可见性 ==========
-        // GTAO 使用 cos 权重积分公式（Jimenez 2016）：
-        // 对于一侧的积分：
-        //   I(h, n) = 1/4 * (-cos(2h - n) + cos(n) + 2h * sin(n))
-        //
-        // 两侧合计（注意负方向的法线角度取反）：
-        //   AO = ( I(h0, n) + I(h1, -n) ) * projNormalLen
-
-        // 对于没有有效采样的方向，h保持在-HALF_PI，
-        // 此时积分结果为最大可见性（无遮蔽）
-        float innerIntegral0 = -cos(2.0 * h0 - n) + cos(n) + 2.0 * h0 * sin(n);
-        float innerIntegral1 = -cos(2.0 * h1 + n) + cos(n) - 2.0 * h1 * sin(n);
-
-        // 乘以投影法线长度作为权重（法线越垂直于切片平面，权重越小）
-        float sliceAO = (innerIntegral0 + innerIntegral1) * 0.25 * projNormalLen;
-
-        totalAO += sliceAO;
+        // 计算可见性积分（论文公式）
+        float iarc0 = (cosNorm + 2.0 * h0 * sin(n) - cos(2.0 * h0 - n)) / 4.0;
+        float iarc1 = (cosNorm + 2.0 * h1 * sin(n) - cos(2.0 * h1 - n)) / 4.0;
+        
+        float localVisibility = projectedNormalVecLength * (iarc0 + iarc1);
+        visibility += localVisibility;
     }
 
     // 归一化
-    totalAO /= (float)AOSliceCount;
+    visibility /= float(AOSliceCount);
 
-    // 应用强度并钳制
-    float ao = saturate(pow(saturate(totalAO), AOIntensity));
-
-    // ========== 屏幕边缘淡化 ==========
-    // 靠近屏幕边缘的像素，GTAO采样方向不完整（很多射线指向屏幕外），
-    // 会产生不准确的AO值。通过在边缘区域将AO淡化到1.0（无遮蔽）来消除伪影。
-    // 这是工业界标准做法（UE、Unity HDRP 等均使用类似策略）。
-    float2 edgeDist = min(uv, 1.0 - uv);  // 到四边的最小距离 [0, 0.5]
-    float edgeMin = min(edgeDist.x, edgeDist.y);  // 到最近边缘的距离
-    // 以采样半径对应的屏幕空间范围作为淡化区域
-    // screenRadius是像素单位，转为UV空间
-    float fadeRange = screenRadius * max(InverseScreenSize.x, InverseScreenSize.y);
-    fadeRange = clamp(fadeRange, 0.02, 0.1);  // 限制淡化范围在合理区间
-    float edgeFade = saturate(edgeMin / fadeRange);
-    ao = lerp(1.0, ao, edgeFade);
+    // 转换为 AO
+    float ao = 1.0 - saturate(visibility);
+    
+    // 应用强度
+    ao = 1 - pow(saturate(ao), AOIntensity);
 
     return ao;
 }
+
+
+
+
 
 
 float4 PSMain(VSOutput input) : SV_TARGET
