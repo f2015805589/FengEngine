@@ -230,6 +230,9 @@ Shader "Screen"
             float gtao = GTAOTexture.Sample(gSamPointClamp, input.uv).r;
             float ao = clamp(materialAO * gtao,0.03,1);
 
+            // 采样SSGI（t7由编译器注入）
+            float3 ssgi = SSGITexture.Sample(gSamPointClamp, input.uv).rgb;
+
             // 计算视线方向和反射方向
             float3 N = normalize(normal.xyz);
             float3 V = normalize(input.cameraPositionWS.xyz - positionWS.xyz);
@@ -281,8 +284,10 @@ Shader "Screen"
             {
                 // 采样阴影图（从LightPass输出）
                 float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
-                // 直接光照 * 阴影 + 间接光照（ambient已包含AO）
-                finalColor = directLighting * shadow * 6.0 + ambient;
+                // 直接光照 * 阴影 + 间接光照
+                // GI模式通过场景常量缓冲区传入：_Padding0.x = giType (0=ambient, 1=SSGI)
+                float3 indirectLighting = (_Padding0.x > 0.5) ? ssgi : ambient;
+                finalColor = directLighting * shadow * 6.0 + indirectLighting;
                 alpha = 1.0;
             }
             else

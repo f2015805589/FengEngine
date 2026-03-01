@@ -178,4 +178,5 @@ void FillSceneCBData(SceneCBData& out,
     int viewportWidth, int viewportHeight,
     float nearPlane, float farPlane,
     const DirectX::XMMATRIX& currentViewProjMatrix,
-    int shadowMode = 2);
+    int shadowMode = 2,
+    int giType = 0);

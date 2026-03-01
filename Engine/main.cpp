@@ -13,6 +13,7 @@
 #include "public/SkyPass.h"
 #include "public/TaaPass.h"
 #include "public/GtaoPass.h"
+#include "public/SsgiPass.h"
 #include "public/Material.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/MaterialEditorPanel.h"
@@ -220,6 +221,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         return -1;
     }
 
+    // 初始化SsgiPass
+    SsgiPass* ssgiPass = new SsgiPass();
+    ssgiPass->SetSceneConstantBuffer(g_scene->GetConstantBuffer());
+    if (!ssgiPass->Initialize(viewportWidth, viewportHeight)) {
+        MessageBox(NULL, L"SsgiPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+    ssgiPass->SetDirectionCount(32);
+
     ID3D12RootSignature* rootSignature = InitRootSignature();
 
     // 设置MaterialManager的RootSignature（用于按需加载shader时自动创建PSO）
@@ -294,6 +304,45 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     ID3D12PipelineState* gtaoBlurPso = gtaoPass->CreateBlurPSO(rootSignature, gtaoBlurVS, gtaoBlurPS);
     if (!gtaoBlurPso) {
         MessageBox(NULL, L"创建GTAO Blur PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    // 加载SSGI着色器
+    D3D12_SHADER_BYTECODE ssgiDepthVS, ssgiDepthPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIDepthMax.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiDepthVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIDepthMax.hlsl").c_str(), "PSMain", "ps_5_0", &ssgiDepthPS);
+    ID3D12PipelineState* ssgiDepthPso = ssgiPass->CreateDepthPSO(rootSignature, ssgiDepthVS, ssgiDepthPS);
+    if (!ssgiDepthPso) {
+        MessageBox(NULL, L"创建SSGI Depth PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    D3D12_SHADER_BYTECODE ssgiVS, ssgiPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGI.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGI.hlsl").c_str(), "PSMain", "ps_5_0", &ssgiPS);
+    ID3D12PipelineState* ssgiPso = ssgiPass->CreateColorPSO(rootSignature, ssgiVS, ssgiPS);
+    if (!ssgiPso) {
+        MessageBox(NULL, L"创建SSGI PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    D3D12_SHADER_BYTECODE ssgiTaaVS, ssgiTaaPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGITAA.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiTaaVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGITAA.hlsl").c_str(), "PSMain", "ps_5_0", &ssgiTaaPS);
+    ID3D12PipelineState* ssgiTaaPso = ssgiPass->CreateColorPSO(rootSignature, ssgiTaaVS, ssgiTaaPS);
+    if (!ssgiTaaPso) {
+        MessageBox(NULL, L"创建SSGI TAA PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
+    D3D12_SHADER_BYTECODE ssgiBlurVS, ssgiBlurHPS, ssgiBlurVPS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIBlur.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiBlurVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIBlur.hlsl").c_str(), "PSMainH", "ps_5_0", &ssgiBlurHPS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIBlur.hlsl").c_str(), "PSMainV", "ps_5_0", &ssgiBlurVPS);
+    ID3D12PipelineState* ssgiBlurHPso = ssgiPass->CreateColorPSO(rootSignature, ssgiBlurVS, ssgiBlurHPS);
+    ID3D12PipelineState* ssgiBlurVPso = ssgiPass->CreateColorPSO(rootSignature, ssgiBlurVS, ssgiBlurVPS);
+    if (!ssgiBlurHPso || !ssgiBlurVPso) {
+        MessageBox(NULL, L"创建SSGI Blur PSO失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
     }
 
@@ -580,7 +629,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     // 6. 调整GtaoPass
                     gtaoPass->Resize(newWidth, newHeight);
 
-                    // 7. 更新Settings
+                    // 7. 调整SsgiPass
+                    ssgiPass->Resize(newWidth, newHeight);
+
+                    // 8. 更新Settings
                     Settings::GetInstance().SetResolution(newWidth, newHeight);
 
                     // 调试输出
@@ -665,6 +717,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 WaitForCompletionOfCommandList();  // Wait for GtaoPass to complete
             }
 
+            //SsgiPass=======================================
+            // 执行SSGI（在GTAO之后、SkyPass之前）
+            if (ssgiPass->IsEnabled()) {
+                commandList->Reset(commandAllocator, ssgiDepthPso);
+                commandList->BeginEvent(0, L"SsgiPass", (UINT)(wcslen(L"SsgiPass") * sizeof(wchar_t)));
+
+                auto& ssgiSceneRTs = g_scene->m_offscreenRTs;
+                ssgiPass->Render(commandList,
+                    ssgiDepthPso,
+                    ssgiPso,
+                    ssgiTaaPso,
+                    ssgiBlurHPso,
+                    ssgiBlurVPso,
+                    rootSignature,
+                    gDSRT,
+                    ssgiSceneRTs[0],   // BaseColor RT（按你的要求不用scene color）
+                    ssgiSceneRTs[1]);  // Normal RT
+
+                commandList->EndEvent();
+                EndCommandList();
+                WaitForCompletionOfCommandList();  // Wait for SsgiPass to complete
+            }
+
             //SkyPass=======================================
             // 执行SkyPass（渲染天空球，在ScreenPass之前）
             // 当TAA启用时，渲染到中间RT；否则渲染到交换链
@@ -734,7 +809,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 gDSRT,  // 深度缓冲用于位置重构
                 skyTexture,
                 g_scene->IsShadowmapEnabled() ? lightPass->GetLightRT() : nullptr,  // shadowmap关闭时传nullptr
-                gtaoPass->GetAOTexture());  // GTAO输出（关闭时为白色纹理）
+                gtaoPass->GetAOTexture(),  // GTAO输出（关闭时为白色纹理）
+                ssgiPass->GetSSGITexture());  // SSGI输出（关闭时为黑色纹理）
 
             // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧和BeginRenderToSwapChain使用
             D3D12_RESOURCE_BARRIER depthBarrier = {};
@@ -900,6 +976,38 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                         if (ImGui::SliderInt("AO Steps/Slice", &stepsPerSlice, 1, 8)) {
                             gtaoPass->SetStepsPerSlice(stepsPerSlice);
                         }
+                    }
+                }
+
+                ImGui::Separator();
+                ImGui::Text("GI Settings");
+
+                const char* giTypes[] = { "Close", "SSGI" };
+                int currentGIType = ssgiPass->GetGIType();
+                if (ImGui::Combo("GI", &currentGIType, giTypes, 2)) {
+                    ssgiPass->SetGIType(currentGIType);
+                    g_scene->SetGIType(currentGIType);
+                }
+
+                if (currentGIType == 1) {
+                    int directionCount = ssgiPass->GetDirectionCount();
+                    if (ImGui::SliderInt("SSGI Directions", &directionCount, 8, 64)) {
+                        ssgiPass->SetDirectionCount(directionCount);
+                    }
+
+                    int stepCount = ssgiPass->GetStepCount();
+                    if (ImGui::SliderInt("SSGI Steps", &stepCount, 4, 24)) {
+                        ssgiPass->SetStepCount(stepCount);
+                    }
+
+                    float giRadius = ssgiPass->GetRadius();
+                    if (ImGui::SliderFloat("SSGI Radius", &giRadius, 0.1f, 6.0f)) {
+                        ssgiPass->SetRadius(giRadius);
+                    }
+
+                    float giIntensity = ssgiPass->GetIntensity();
+                    if (ImGui::SliderFloat("SSGI Intensity", &giIntensity, 0.1f, 5.0f)) {
+                        ssgiPass->SetIntensity(giIntensity);
                     }
                 }
 
@@ -1194,6 +1302,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     delete g_scene;
     delete g_materialEditor;
     delete gtaoPass;
+    delete ssgiPass;
 
     // 清理纹理系统
     TexturePreviewPanel::GetInstance().Shutdown();

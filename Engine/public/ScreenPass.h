@@ -29,7 +29,8 @@ public:
         ID3D12Resource* depthBuffer,  // 深度缓冲（用于位置重构）
         ComPtr<ID3D12Resource> skyTexture,
         ID3D12Resource* shadowMap,  // LightPass输出的阴影图
-        ID3D12Resource* gtaoTexture = nullptr  // GTAO输出的AO纹理
+        ID3D12Resource* gtaoTexture = nullptr,  // GTAO输出的AO纹理
+        ID3D12Resource* ssgiTexture = nullptr  // SSGI输出的GI纹理
     );
 
     ID3D12PipelineState* CreatePSO(ID3D12RootSignature* rootSig,
@@ -52,9 +53,11 @@ private:
         ID3D12Resource* depthBuffer,  // 深度缓冲
         ComPtr<ID3D12Resource> skyTexture,
         ID3D12Resource* shadowMap,  // 阴影图
-        ID3D12Resource* gtaoTexture);  // GTAO AO纹理
+        ID3D12Resource* gtaoTexture,  // GTAO AO纹理
+        ID3D12Resource* ssgiTexture);  // SSGI GI纹理
 
     void CreateDefaultWhiteTexture();
+    void CreateDefaultBlackTexture();
 
     ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     UINT m_srvDescriptorSize = 0;  // SRV��������С
@@ -70,4 +73,8 @@ private:
     // 默认白色纹理（GTAO关闭时使用，代表无AO遮蔽）
     ComPtr<ID3D12Resource> m_defaultWhiteTexture;
     ComPtr<ID3D12Resource> m_defaultWhiteTextureUpload;
+
+    // 默认黑色纹理（SSGI关闭时使用，代表无GI贡献）
+    ComPtr<ID3D12Resource> m_defaultBlackTexture;
+    ComPtr<ID3D12Resource> m_defaultBlackTextureUpload;
 };

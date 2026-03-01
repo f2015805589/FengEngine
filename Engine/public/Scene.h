@@ -46,6 +46,10 @@ public:
     void SetShadowmapEnabled(bool enabled) { m_shadowmapEnabled = enabled; }
     bool IsShadowmapEnabled() const { return m_shadowmapEnabled; }
 
+    // GI模式：0=Close(ambient), 1=SSGI
+    void SetGIType(int giType) { m_giType = giType; }
+    int GetGIType() const { return m_giType; }
+
     // Skylight颜色调节（UE风格的Tint功能）
     void SetSkylightColor(float r, float g, float b) {
         m_skylightColor = DirectX::XMFLOAT3(r, g, b);
@@ -155,6 +159,7 @@ private:
     float m_shadowOrthoSize = 20.0f;  // Shadowmap正交投影范围（默认20）
     int m_shadowMode = 2;             // 阴影模式：0=Hard, 1=PCF, 2=PCSS（默认PCSS）
     bool m_shadowmapEnabled = true;   // Shadowmap开关（默认开启）
+    int m_giType = 0;                 // GI模式：0=Close(ambient), 1=SSGI
 
 
     ID3D12DescriptorHeap* m_rtvHeap = nullptr;   // 离屏RT的RTV描述符堆

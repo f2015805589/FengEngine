@@ -662,7 +662,7 @@ void Scene::Update(float deltaTime) {
         m_jitterOffset, m_previousJitterOffset,
         m_viewportWidth, m_viewportHeight,
         m_camera.GetNearPlane(), m_camera.GetFarPlane(),
-        currentViewProjMatrix, m_shadowMode);
+        currentViewProjMatrix, m_shadowMode, m_giType);
 
     // 使用持久映射，直接memcpy到映射内存
     if (m_mappedConstantBuffer) {
@@ -680,7 +680,7 @@ void Scene::Update(float deltaTime) {
             m_jitterOffset, m_previousJitterOffset,
             m_viewportWidth, m_viewportHeight,
             m_camera.GetNearPlane(), m_camera.GetFarPlane(),
-            currentViewProjMatrix, m_shadowMode);
+            currentViewProjMatrix, m_shadowMode, m_giType);
     }
 }
 
@@ -845,7 +845,7 @@ void Scene::Render(ID3D12GraphicsCommandList* commandList, ID3D12PipelineState* 
                                        m_jitterOffset, m_previousJitterOffset,
                                        m_viewportWidth, m_viewportHeight,
                                        nearPlane, farPlane,
-                                       currentViewProjMatrix, m_shadowMode);
+                                       currentViewProjMatrix, m_shadowMode, m_giType);
 
             // 调试：输出CB的GPU地址，确认每个Actor使用不同的CB
             char cbMsg[256];

@@ -913,7 +913,8 @@ void FillSceneCBData(SceneCBData& out,
     int viewportWidth, int viewportHeight,
     float nearPlane, float farPlane,
     const DirectX::XMMATRIX& currentViewProjMatrix,
-    int shadowMode) {
+    int shadowMode,
+    int giType) {
 
     using namespace DirectX;
 
@@ -932,7 +933,7 @@ void FillSceneCBData(SceneCBData& out,
 
     out.lightDirection = XMFLOAT4(lightDir.x, lightDir.y, lightDir.z, 0.0f);
     out.cameraPosition = XMFLOAT4(cameraPos.x, cameraPos.y, cameraPos.z, 0.0f);
-    out.skylightParams = XMFLOAT4(skylightIntensity, 0.0f, 0.0f, 0.0f);
+    out.skylightParams = XMFLOAT4(skylightIntensity, static_cast<float>(giType), 0.0f, 0.0f);
 
     XMStoreFloat4x4(&out.invProjMatrix, invProjMatrix);
     XMStoreFloat4x4(&out.invViewMatrix, invViewMatrix);

@@ -84,7 +84,8 @@ public:
                              int viewportWidth, int viewportHeight,
                              float nearPlane, float farPlane,
                              const DirectX::XMMATRIX& currentViewProjMatrix,
-                             int shadowMode = 2);
+                             int shadowMode = 2,
+                             int giType = 0);
 
     // Is selected (for editor)
     bool IsSelected() const { return m_isSelected; }
