@@ -231,7 +231,10 @@ Shader "Screen"
             float ao = clamp(materialAO * gtao,0.03,1);
 
             // 采样SSGI（t7由编译器注入）
-            float3 ssgi = SSGITexture.Sample(gSamPointClamp, input.uv).rgb;
+            // rgb = SSGI间接光照, a = 命中率权重（用于与IBL lerp混合）
+            float4 ssgiData = SSGITexture.Sample(gSamPointClamp, input.uv);
+            float3 ssgi = ssgiData.rgb;
+            float ssgiWeight = ssgiData.a;
 
             // 计算视线方向和反射方向
             float3 N = normalize(normal.xyz);
@@ -273,8 +276,16 @@ Shader "Screen"
             specularIBL *= ComputeEnergyConservation(EnergyTerms);
 
             // 合并环境光
-            float3 ambient = (diffuseIBL + specularIBL) * Skylight * MultiBounceAO(ao,baseColor.xyz);
-
+            // 采样阴影图（从LightPass输出）
+            float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
+            // 直接光照 * 阴影 + 间接光照
+             // GI模式通过场景常量缓冲区传入：_Padding0.x = giType (0=ambient, 1=SSGI)
+            
+            float3 ambient = (diffuseIBL + specularIBL) * Skylight;
+            // SSGI模式：用命中率权重在 IBL 和 SSGI 之间 lerp
+            // ssgiWeight=0 → 全部使用IBL, ssgiWeight=1 → 全部使用SSGI
+            ambient = (_Padding0.x > 0.5) ? lerp(ambient, ssgi, ssgiWeight) : ambient;
+            ambient = ambient * MultiBounceAO(ao,baseColor.xyz);
             // ==================== 组合最终颜色 ====================
             float3 finalColor = float3(0, 0, 0);
             float alpha = 1.0;
@@ -282,12 +293,7 @@ Shader "Screen"
             // 检查是否是有效像素
             if (depth < 1.0)
             {
-                // 采样阴影图（从LightPass输出）
-                float shadow = ShadowMap.Sample(gSamPointWrap, input.uv).r;
-                // 直接光照 * 阴影 + 间接光照
-                // GI模式通过场景常量缓冲区传入：_Padding0.x = giType (0=ambient, 1=SSGI)
-                float3 indirectLighting = (_Padding0.x > 0.5) ? ssgi : ambient;
-                finalColor = directLighting * shadow * 6.0 + indirectLighting;
+                finalColor = directLighting * shadow * 6.0 + ambient;
                 alpha = 1.0;
             }
             else

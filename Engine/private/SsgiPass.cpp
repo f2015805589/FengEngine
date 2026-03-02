@@ -382,8 +382,6 @@ void SsgiPass::Render(ID3D12GraphicsCommandList* cmdList,
 
     (void)depthMaxPso;
     (void)taaPso;
-    (void)blurHPso;
-    (void)blurVPso;
 
     UpdateConstants();
 
@@ -423,6 +421,67 @@ void SsgiPass::Render(ID3D12GraphicsCommandList* cmdList,
         cmdList->DrawInstanced(6, 1, 0, 0);
     }
     transition(m_ssgiRawRT.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    // ========== 横向模糊 Pass ==========
+    // 读取 m_ssgiRawRT(t0) + depthBuffer(t1) → 输出到 m_ssgiBlurTempRT
+    // 注意：横向和纵向模糊必须使用不同的 SRV slot，
+    // 因为 CPU 写描述符是即时的，但 GPU 执行 draw call 是延迟的，
+    // 如果共用同一 slot，纵向模糊的写入会覆盖横向模糊尚未执行完的输入。
+    const UINT kBlurHSrvStart = 10;
+    const UINT kBlurVSrvStart = 12;
+    CreateBlurInputSRV(m_ssgiRawRT.Get(), depthBuffer, kBlurHSrvStart);
+    transition(m_ssgiBlurTempRT.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    {
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, m_rtvDescriptorSize);
+        float clearColor[4] = { 0, 0, 0, 1 };
+        cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+        cmdList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+        cmdList->SetGraphicsRootSignature(rootSig);
+        cmdList->SetPipelineState(blurHPso);
+        if (m_sceneConstantBuffer) cmdList->SetGraphicsRootConstantBufferView(0, m_sceneConstantBuffer->GetGPUVirtualAddress());
+        cmdList->SetGraphicsRootConstantBufferView(2, m_ssgiConstantBuffer->GetGPUVirtualAddress());
+
+        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+        cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(m_srvHeap->GetGPUDescriptorHandleForHeapStart(), kBlurHSrvStart, m_srvDescriptorSize);
+        cmdList->SetGraphicsRootDescriptorTable(1, srvGpuHandle);
+
+        D3D12_VERTEX_BUFFER_VIEW vbv;
+        GetSharedFullscreenQuadVB(vbv);
+        cmdList->IASetVertexBuffers(0, 1, &vbv);
+        cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmdList->DrawInstanced(6, 1, 0, 0);
+    }
+    transition(m_ssgiBlurTempRT.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+
+    // ========== 纵向模糊 Pass ==========
+    // 读取 m_ssgiBlurTempRT(t0) + depthBuffer(t1) → 输出到 m_ssgiFinalRT
+    CreateBlurInputSRV(m_ssgiBlurTempRT.Get(), depthBuffer, kBlurVSrvStart);
+    transition(m_ssgiFinalRT.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    {
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, m_rtvDescriptorSize);
+        float clearColor[4] = { 0, 0, 0, 1 };
+        cmdList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+        cmdList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+        cmdList->SetGraphicsRootSignature(rootSig);
+        cmdList->SetPipelineState(blurVPso);
+        if (m_sceneConstantBuffer) cmdList->SetGraphicsRootConstantBufferView(0, m_sceneConstantBuffer->GetGPUVirtualAddress());
+        cmdList->SetGraphicsRootConstantBufferView(2, m_ssgiConstantBuffer->GetGPUVirtualAddress());
+
+        ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+        cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(m_srvHeap->GetGPUDescriptorHandleForHeapStart(), kBlurVSrvStart, m_srvDescriptorSize);
+        cmdList->SetGraphicsRootDescriptorTable(1, srvGpuHandle);
+
+        D3D12_VERTEX_BUFFER_VIEW vbv;
+        GetSharedFullscreenQuadVB(vbv);
+        cmdList->IASetVertexBuffers(0, 1, &vbv);
+        cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        cmdList->DrawInstanced(6, 1, 0, 0);
+    }
+    transition(m_ssgiFinalRT.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
     m_frameCounter++;
 }

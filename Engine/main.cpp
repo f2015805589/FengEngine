@@ -228,7 +228,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         MessageBox(NULL, L"SsgiPass初始化失败!", L"错误", MB_OK | MB_ICONERROR);
         return -1;
     }
-    ssgiPass->SetDirectionCount(32);
 
     ID3D12RootSignature* rootSignature = InitRootSignature();
 
@@ -732,8 +731,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     ssgiBlurVPso,
                     rootSignature,
                     gDSRT,
-                    ssgiSceneRTs[0],   // BaseColor RT（按你的要求不用scene color）
-                    ssgiSceneRTs[1]);  // Normal RT
+                ssgiSceneRTs[0],   // BaseColor RT（按你的要求不用scene color）
+                    ssgiSceneRTs[1]);   // Normal RT
 
                 commandList->EndEvent();
                 EndCommandList();

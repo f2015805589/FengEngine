@@ -68,12 +68,12 @@ VSOutput VSMain(VSInput input)
     return output;
 }
 
-float3 BlurAxis(float2 uv, float2 axis)
+float4 BlurAxis(float2 uv, float2 axis)
 {
     const float weights[5] = { 0.204164, 0.304005, 0.193783, 0.07208, 0.016 }; // normalized-ish
 
     float centerDepth = DepthTexture.SampleLevel(PointClampSampler, uv, 0);
-    float3 color = InputTexture.SampleLevel(LinearClampSampler, uv, 0).rgb * weights[0];
+    float4 color = InputTexture.SampleLevel(LinearClampSampler, uv, 0) * weights[0];
     float weightSum = weights[0];
 
     [unroll]
@@ -93,8 +93,8 @@ float3 BlurAxis(float2 uv, float2 axis)
         float wA = weights[i] * edgeA;
         float wB = weights[i] * edgeB;
 
-        color += InputTexture.SampleLevel(LinearClampSampler, uvA, 0).rgb * wA;
-        color += InputTexture.SampleLevel(LinearClampSampler, uvB, 0).rgb * wB;
+        color += InputTexture.SampleLevel(LinearClampSampler, uvA, 0) * wA;
+        color += InputTexture.SampleLevel(LinearClampSampler, uvB, 0) * wB;
         weightSum += wA + wB;
     }
 
@@ -103,10 +103,10 @@ float3 BlurAxis(float2 uv, float2 axis)
 
 float4 PSMainH(VSOutput input) : SV_TARGET
 {
-    return float4(BlurAxis(input.TexCoord, float2(1, 0)), 1.0);
+    return BlurAxis(input.TexCoord, float2(1, 0));
 }
 
 float4 PSMainV(VSOutput input) : SV_TARGET
 {
-    return float4(BlurAxis(input.TexCoord, float2(0, 1)), 1.0);
+    return BlurAxis(input.TexCoord, float2(0, 1));
 }

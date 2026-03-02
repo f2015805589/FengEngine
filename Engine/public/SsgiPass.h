@@ -56,7 +56,7 @@ public:
     void Resize(int newWidth, int newHeight);
 
     ID3D12Resource* GetSSGITexture() const {
-        if (m_giType == GIType::SSGI) return m_ssgiRawRT.Get();
+        if (m_giType == GIType::SSGI) return m_ssgiFinalRT.Get();
         return m_defaultBlackTexture.Get();
     }
 
@@ -121,10 +121,10 @@ private:
 
     GIType m_giType = GIType::Off;
 
-    float m_radius = 2.0f;
-    float m_intensity = 0.8f;
-    int m_stepCount = 8;
-    int m_directionCount = 32;
+float m_radius = 6.0f;
+float m_intensity = 1.0f;
+int m_stepCount = 24;
+int m_directionCount = 64;
     int m_depthPyramidPasses = 3;
     int m_frameCounter = 0;
     bool m_useHistory2 = false;
