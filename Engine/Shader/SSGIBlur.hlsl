@@ -72,6 +72,16 @@ float4 BlurAxis(float2 uv, float2 axis)
 {
     const float weights[5] = { 0.204164, 0.304005, 0.193783, 0.07208, 0.016 }; // normalized-ish
 
+    // 根据分辨率调整模糊强度：低分辨率下增强模糊，使用自定义缩放
+    float resolutionScale = ScreenSize.x / SSGIResolution.x; // 1=全分辨率, 2=半分辨率, 4=1/4分辨率
+    float blurScale;
+    if (resolutionScale <= 1.0)
+        blurScale = 1.0;      // 全分辨率: 1x模糊
+    else if (resolutionScale <= 2.0)
+        blurScale = 1.5;      // 半分辨率: 1.5x模糊
+    else
+        blurScale = 2.5;      // 1/4分辨率: 2.5x模糊
+
     float centerDepth = DepthTexture.SampleLevel(PointClampSampler, uv, 0);
     float4 color = InputTexture.SampleLevel(LinearClampSampler, uv, 0) * weights[0];
     float weightSum = weights[0];
@@ -79,7 +89,7 @@ float4 BlurAxis(float2 uv, float2 axis)
     [unroll]
     for (int i = 1; i < 5; ++i)
     {
-        float2 offset = axis * float(i) * InverseScreenSize;
+        float2 offset = axis * float(i) * InverseScreenSize * blurScale; // 应用模糊缩放
 
         float2 uvA = uv + offset;
         float2 uvB = uv - offset;

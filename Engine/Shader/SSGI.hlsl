@@ -49,6 +49,8 @@ Texture2D<float4> BaseColorTexture : register(t1);
 Texture2D<float4> NormalTexture    : register(t2);
 Texture2D<float4> NoiseTexture     : register(t3);
 Texture2D<float>  DepthTexture     : register(t4);
+Texture2D<float4> HistoryTexture   : register(t5);  // 历史帧SSGI
+Texture2D<float2> VelocityTexture  : register(t6);  // Motion Vector (RG only)
 
 SamplerState PointClampSampler  : register(s1);
 SamplerState LinearClampSampler : register(s3);
@@ -208,12 +210,14 @@ bool TraceSSRay(ScreenSpaceRay ray, float thickness, out float2 hitUV)
     if (!ray.valid || ray.tmax < 1.0)
         return false;
 
-    float marchStep = 1.01; // 每步约1像素
+    float marchStep = 1.01; // 每步约1个SSGI像素
     float t = marchStep;    // 跳过起点
     int2 prevPixel = int2(-1, -1);
 
+    int maxSteps = min(SSGIStepCount, 256); // 使用可调节的步数，上限256
+
     [loop]
-    for (int i = 0; i < 256 && t < ray.tmax; ++i)
+    for (int i = 0; i < maxSteps && t < ray.tmax; ++i)
     {
         float3 p = ray.o + ray.d * t;
         int2 pixel = int2(p.xy);
@@ -252,8 +256,8 @@ bool TraceSSRay(ScreenSpaceRay ray, float thickness, out float2 hitUV)
         // 正值 = 光线在场景表面后面（穿过了几何体）
         float depthDiff = rayLinearDepth - sceneLinearDepth;
 
-        // 自适应厚度：随深度线性增长，远处物体允许更大的深度容差
-        float adaptiveThickness = thickness + abs(sceneLinearDepth) * 0.05;
+        // 自适应厚度：随深度线性增长
+        float adaptiveThickness = thickness + abs(sceneLinearDepth) * 0.02;
 
         // 命中条件：光线穿过场景表面，但没有穿太深
         if (depthDiff > 0.0 && depthDiff < adaptiveThickness)
@@ -286,10 +290,15 @@ float4 PSMain(VSOutput input) : SV_TARGET
     // 重建视图空间位置
     float3 centerPosV = ReconstructViewPos(uv, centerDepthNdc);
 
-    // 噪声
-    float noise1 = InterleavedGradientNoise(input.Position.xy);
+    // 噪声：使用视图空间位置 + 帧计数，避免固定模式
+    // 视图空间位置相对稳定，不会随屏幕旋转
+    float3 noiseInput = centerPosV * 0.5 + float3(SSGIFrameCounter * 0.1, 0, 0);
+    float noise1 = frac(sin(dot(noiseInput, float3(12.9898, 78.233, 45.164))) * 43758.5453);
 
     int directions = max(SSGIDirectionCount, 1);
+
+    // 计算分辨率缩放（在循环外定义，供后续使用）
+    float resolutionScale = ScreenSize.x / SSGIResolution.x; // 1=全分辨率, 2=半分辨率, 4=1/4分辨率
 
     float3 giSum = 0.0;
     float hitCount = 0.0;
@@ -298,17 +307,27 @@ float4 PSMain(VSOutput input) : SV_TARGET
     for (int dirIndex = 0; dirIndex < directions; ++dirIndex)
     {
         // 准随机数用于半球采样
-        // 帧间黄金角旋转：每帧偏移一个黄金比例步长，减少方向数后仍能均匀覆盖半球
+        // 使用R2序列 + 空间噪声 + 帧间抖动（用于时域累积降噪）
         float frameNoise = frac(float(SSGIFrameCounter) * 0.618033988749895); // 黄金比例
-        float2 r2 = R2Sequence(dirIndex + SSGIFrameCounter * directions);
-        r2.x = frac(r2.x + noise1 + frameNoise); // 空间噪声 + 帧间旋转抖动
-        r2.y = frac(r2.y + frameNoise * 0.5);    // 仰角也加帧间抖动
+        float2 r2 = R2Sequence(dirIndex);
+        r2.x = frac(r2.x + noise1 * 0.5 + frameNoise * 0.3); // 增大帧间抖动到30%
+        r2.y = frac(r2.y + noise1 * 0.3 + frameNoise * 0.15); // 仰角抖动15%
 
         // 在法线半球内余弦加权采样一个3D方向（视图空间）
         float3 dirV = CosineWeightedHemisphere(centerNormalV, r2);
 
+        // 根据分辨率调整半径：低分辨率下减小半径，使用自定义缩放
+        float radiusScale;
+        if (resolutionScale <= 1.0)
+            radiusScale = 1.0;      // 全分辨率: 6.0
+        else if (resolutionScale <= 2.0)
+            radiusScale = 2.1;      // 半分辨率: 6.0/2.1 = 2.86
+        else
+            radiusScale = 3.33;     // 1/4分辨率: 6.0/3.33 = 1.8
+        float adjustedRadius = SSGIRadius / radiusScale;
+
         // 将视图空间射线投影到屏幕空间
-        ScreenSpaceRay ssRay = CreateSSRay(centerPosV, dirV, SSGIRadius);
+        ScreenSpaceRay ssRay = CreateSSRay(centerPosV, dirV, adjustedRadius);
 
         if (!ssRay.valid)
             continue;
@@ -326,7 +345,7 @@ float4 PSMain(VSOutput input) : SV_TARGET
             float hitDepthNdc = DepthTexture.SampleLevel(PointClampSampler, hitUV, 0);
             float3 hitPosV = ReconstructViewPos(hitUV, hitDepthNdc);
             float dist = length(hitPosV - centerPosV);
-            float distAtt = saturate(1.0 - dist / SSGIRadius);
+            float distAtt = saturate(1.0 - dist / adjustedRadius); // 使用调整后的半径
 
             // 蒙特卡洛：余弦加权半球采样 PDF = cos(θ)/π
             // Lambert BRDF = albedo/π
@@ -340,12 +359,115 @@ float4 PSMain(VSOutput input) : SV_TARGET
     // 蒙特卡洛归一化
     float3 indirect = giSum / float(directions);
 
+    // 根据分辨率调整强度：低分辨率下增强强度补偿半径减小
+    float intensityScale;
+    if (resolutionScale <= 1.0)
+        intensityScale = 1.0;      // 全分辨率: 1x强度
+    else if (resolutionScale <= 2.0)
+        intensityScale = 1.25;      // 半分辨率: 1.25x强度
+    else
+        intensityScale = 1.5;      // 1/4分辨率: 1.5x强度
+
     // 应用强度
-    indirect *= SSGIIntensity;
+    indirect *= SSGIIntensity * intensityScale;
 
     // alpha 通道输出 SSGI 命中率（0=全部未命中，1=全部命中）
-    // 合成阶段用此权重在 SSGI 和 IBL 之间 lerp
     float ssgiWeight = hitCount / float(directions);
 
-    return float4(max(indirect, 0.0), ssgiWeight);
+    // ========== Temporal Accumulation (时域累积) ==========
+    // 采样motion vector进行历史帧重投影
+    float2 velocity = VelocityTexture.SampleLevel(PointClampSampler, uv, 0).xy;
+    float2 historyUV = uv - velocity;
+
+    // 运动幅度检测
+    float motionAmount = length(velocity * SSGIResolution);
+    bool fastMotion = motionAmount > 5.0; // 超过5像素认为是快速运动（放宽阈值）
+
+    // 检查历史UV是否有效
+    bool validHistory = all(historyUV >= 0.0) && all(historyUV <= 1.0) && !fastMotion;
+
+    float3 result = indirect;
+
+    if (validHistory && SSGIFrameCounter > 0)
+    {
+        // 3x3邻域颜色裁剪（用于当前帧）
+        float3 colorMin = indirect;
+        float3 colorMax = indirect;
+        float3 colorAvg = indirect;
+        int validSamples = 1;
+
+        [unroll]
+        for (int y = -1; y <= 1; ++y)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; ++x)
+            {
+                if (x == 0 && y == 0) continue;
+                float2 sampleUV = uv + float2(x, y) * SSGIInverseResolution;
+                float3 neighbor = BaseColorTexture.SampleLevel(PointClampSampler, sampleUV, 0).rgb;
+                colorMin = min(colorMin, neighbor);
+                colorMax = max(colorMax, neighbor);
+                colorAvg += neighbor;
+                validSamples++;
+            }
+        }
+        colorAvg /= float(validSamples);
+
+        // 亚像素精度修正：在历史帧周围3x3区域搜索最佳匹配
+        float3 bestHistory = HistoryTexture.SampleLevel(LinearClampSampler, historyUV, 0).rgb;
+        float bestScore = 99999.0;
+
+        // 采样当前位置的深度作为参考
+        float centerDepthForMatch = centerDepthNdc;
+
+        [unroll]
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            [unroll]
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                float2 testUV = historyUV + float2(dx, dy) * SSGIInverseResolution;
+
+                // 边界检查
+                if (any(testUV < 0.0) || any(testUV > 1.0))
+                    continue;
+
+                // 采样历史帧深度
+                float testDepth = DepthTexture.SampleLevel(PointClampSampler, testUV, 0);
+                float depthDiff = abs(centerDepthForMatch - testDepth);
+
+                // 深度相似度评分（深度差越小越好）
+                float depthScore = depthDiff * 1000.0;
+
+                // 如果这个位置的深度更接近，选择它
+                if (depthScore < bestScore)
+                {
+                    bestScore = depthScore;
+                    bestHistory = HistoryTexture.SampleLevel(LinearClampSampler, testUV, 0).rgb;
+                }
+            }
+        }
+
+        // 如果最佳匹配的深度差异仍然太大，拒绝历史帧
+        if (bestScore > 3.0) // 深度差 > 0.003
+        {
+            return float4(max(indirect, 0.0), ssgiWeight);
+        }
+
+        // 颜色裁剪：将历史帧限制在当前帧邻域范围内
+        float3 history = clamp(bestHistory, colorMin, colorMax);
+
+        // 自适应混合：大幅提高混合权重来稳定结果
+        float baseBlend = TemporalBlend * 0.95; // 基础权重0.95（0.7 * 0.95 = 0.665）
+        float motionWeight = saturate(1.0 - motionAmount * 0.1); // 运动衰减减弱
+        float blend = baseBlend * motionWeight;
+
+        // 命中率低时进一步增加混合来减少噪点
+        blend = lerp(blend, min(baseBlend * 0.98, 0.95), 1.0 - ssgiWeight);
+
+        // 时域累积
+        result = lerp(indirect, history, blend);
+    }
+
+    return float4(max(result, 0.0), ssgiWeight);
 }

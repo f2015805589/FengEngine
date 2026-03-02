@@ -12,6 +12,12 @@ enum class GIType {
     SSGI = 1
 };
 
+enum class SSGIResolutionScale {
+    Full = 0,    // 1/1
+    Half = 1,    // 1/2
+    Quarter = 2  // 1/4
+};
+
 struct SsgiConstants {
     XMFLOAT2 resolution;
     XMFLOAT2 inverseResolution;
@@ -37,13 +43,15 @@ public:
     void Render(ID3D12GraphicsCommandList* cmdList,
         ID3D12PipelineState* depthMaxPso,
         ID3D12PipelineState* ssgiPso,
+        ID3D12PipelineState* upsamplePso,
         ID3D12PipelineState* taaPso,
         ID3D12PipelineState* blurHPso,
         ID3D12PipelineState* blurVPso,
         ID3D12RootSignature* rootSig,
         ID3D12Resource* depthBuffer,
         ID3D12Resource* baseColorRT,
-        ID3D12Resource* normalRT);
+        ID3D12Resource* normalRT,
+        ID3D12Resource* velocityRT);
 
     ID3D12PipelineState* CreateDepthPSO(ID3D12RootSignature* rootSig,
         D3D12_SHADER_BYTECODE vs,
@@ -76,6 +84,9 @@ public:
     void SetDirectionCount(int value) { m_directionCount = value; }
     int GetDirectionCount() const { return m_directionCount; }
 
+    void SetResolutionScale(int value);
+    int GetResolutionScale() const { return static_cast<int>(m_resolutionScale); }
+
     void SetDepthPyramidPasses(int value) { m_depthPyramidPasses = value; }
     int GetDepthPyramidPasses() const { return m_depthPyramidPasses; }
 
@@ -89,8 +100,8 @@ private:
     void SetViewportAndScissor(ID3D12GraphicsCommandList* cmdList);
 
     void CreateDepthInputSRV(ID3D12Resource* sourceDepth, DXGI_FORMAT format, UINT descriptorIndex);
-    void CreateRaymarchInputSRVs(ID3D12Resource* depthMaxTex, ID3D12Resource* baseColorRT, ID3D12Resource* normalRT, ID3D12Resource* sceneDepth, UINT descriptorStartIndex);
-    void CreateTaaInputSRVs(ID3D12Resource* currentRT, ID3D12Resource* historyRT, ID3D12Resource* depthTex);
+    void CreateRaymarchInputSRVs(ID3D12Resource* depthMaxTex, ID3D12Resource* baseColorRT, ID3D12Resource* normalRT, ID3D12Resource* sceneDepth, ID3D12Resource* historyRT, ID3D12Resource* velocityRT, UINT descriptorStartIndex);
+    void CreateTaaInputSRVs(ID3D12Resource* currentRT, ID3D12Resource* historyRT, ID3D12Resource* depthTex, ID3D12Resource* velocityTex, UINT descriptorStartIndex);
     void CreateBlurInputSRV(ID3D12Resource* sourceRT, ID3D12Resource* sceneDepth, UINT descriptorStartIndex);
 
 private:
@@ -123,9 +134,12 @@ private:
 
 float m_radius = 6.0f;
 float m_intensity = 1.0f;
-int m_stepCount = 24;
-int m_directionCount = 64;
+int m_stepCount = 128;
+int m_directionCount = 64;  // 提高方向数，配合temporal accumulation降噪
     int m_depthPyramidPasses = 3;
     int m_frameCounter = 0;
     bool m_useHistory2 = false;
+    SSGIResolutionScale m_resolutionScale = SSGIResolutionScale::Quarter; // 默认1/2分辨率
+    int m_ssgiWidth = 0;  // SSGI实际渲染分辨率
+    int m_ssgiHeight = 0;
 };

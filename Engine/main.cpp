@@ -345,6 +345,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         return -1;
     }
 
+    // SSGI Upsample PSO
+    D3D12_SHADER_BYTECODE ssgiUpsampleVS, ssgiUpsamplePS;
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIUpsample.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiUpsampleVS);
+    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIUpsample.hlsl").c_str(), "PSMain", "ps_5_0", &ssgiUpsamplePS);
+    ID3D12PipelineState* ssgiUpsamplePso = ssgiPass->CreateColorPSO(rootSignature, ssgiUpsampleVS, ssgiUpsamplePS);
+    if (!ssgiUpsamplePso) {
+        MessageBox(NULL, L"创建SSGI Upsample PSO失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+
     // 加载TaaCopy着色器（用于将TAA结果复制到交换链）
     D3D12_SHADER_BYTECODE taaCopyVS, taaCopyPS;
     CreateShaderFromFile((GetEnginePath() + L"Shader/TaaCopy.hlsl").c_str(), "VSMain", "vs_5_0", &taaCopyVS);
@@ -726,13 +736,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 ssgiPass->Render(commandList,
                     ssgiDepthPso,
                     ssgiPso,
+                    ssgiUpsamplePso,
                     ssgiTaaPso,
                     ssgiBlurHPso,
                     ssgiBlurVPso,
                     rootSignature,
                     gDSRT,
-                ssgiSceneRTs[0],   // BaseColor RT（按你的要求不用scene color）
-                    ssgiSceneRTs[1]);   // Normal RT
+                    ssgiSceneRTs[0],   // BaseColor RT
+                    ssgiSceneRTs[1],   // Normal RT
+                    ssgiSceneRTs[3]);  // Velocity RT (Motion Vector)
 
                 commandList->EndEvent();
                 EndCommandList();
@@ -989,13 +1001,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 }
 
                 if (currentGIType == 1) {
+                    // 分辨率缩放下拉框
+                    const char* resolutionScaleItems[] = { "Full (1/1)", "Half (1/2)", "Quarter (1/4)" };
+                    int currentResScale = ssgiPass->GetResolutionScale();
+                    if (ImGui::Combo("SSGI Resolution", &currentResScale, resolutionScaleItems, IM_ARRAYSIZE(resolutionScaleItems))) {
+                        ssgiPass->SetResolutionScale(currentResScale);
+                    }
+
                     int directionCount = ssgiPass->GetDirectionCount();
                     if (ImGui::SliderInt("SSGI Directions", &directionCount, 8, 64)) {
                         ssgiPass->SetDirectionCount(directionCount);
                     }
 
                     int stepCount = ssgiPass->GetStepCount();
-                    if (ImGui::SliderInt("SSGI Steps", &stepCount, 4, 24)) {
+                    if (ImGui::SliderInt("SSGI Steps", &stepCount, 4, 256)) {
                         ssgiPass->SetStepCount(stepCount);
                     }
 
