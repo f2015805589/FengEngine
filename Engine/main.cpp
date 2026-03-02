@@ -325,15 +325,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         return -1;
     }
 
-    D3D12_SHADER_BYTECODE ssgiTaaVS, ssgiTaaPS;
-    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGITAA.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiTaaVS);
-    CreateShaderFromFile((GetEnginePath() + L"Shader/SSGITAA.hlsl").c_str(), "PSMain", "ps_5_0", &ssgiTaaPS);
-    ID3D12PipelineState* ssgiTaaPso = ssgiPass->CreateColorPSO(rootSignature, ssgiTaaVS, ssgiTaaPS);
-    if (!ssgiTaaPso) {
-        MessageBox(NULL, L"创建SSGI TAA PSO失败!", L"错误", MB_OK | MB_ICONERROR);
-        return -1;
-    }
-
     D3D12_SHADER_BYTECODE ssgiBlurVS, ssgiBlurHPS, ssgiBlurVPS;
     CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIBlur.hlsl").c_str(), "VSMain", "vs_5_0", &ssgiBlurVS);
     CreateShaderFromFile((GetEnginePath() + L"Shader/SSGIBlur.hlsl").c_str(), "PSMainH", "ps_5_0", &ssgiBlurHPS);
@@ -737,7 +728,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     ssgiDepthPso,
                     ssgiPso,
                     ssgiUpsamplePso,
-                    ssgiTaaPso,
                     ssgiBlurHPso,
                     ssgiBlurVPso,
                     rootSignature,

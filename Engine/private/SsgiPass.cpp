@@ -357,34 +357,6 @@ void SsgiPass::CreateRaymarchInputSRVs(ID3D12Resource* depthMaxTex, ID3D12Resour
     gD3D12Device->CreateShaderResourceView(velocityRT, &srvDesc, srvHandle);
 }
 
-void SsgiPass::CreateTaaInputSRVs(ID3D12Resource* currentRT, ID3D12Resource* historyRT, ID3D12Resource* depthTex, ID3D12Resource* velocityTex, UINT descriptorStartIndex) {
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart(), descriptorStartIndex, m_srvDescriptorSize);
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Texture2D.MipLevels = 1;
-    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-    // t0: Current SSGI
-    srvDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    gD3D12Device->CreateShaderResourceView(currentRT, &srvDesc, srvHandle);
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t1: History SSGI
-    gD3D12Device->CreateShaderResourceView(historyRT, &srvDesc, srvHandle);
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t2: Depth
-    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    gD3D12Device->CreateShaderResourceView(depthTex, &srvDesc, srvHandle);
-    srvHandle.Offset(1, m_srvDescriptorSize);
-
-    // t3: Velocity (Motion Vector)
-    srvDesc.Format = DXGI_FORMAT_R16G16_FLOAT;
-    gD3D12Device->CreateShaderResourceView(velocityTex, &srvDesc, srvHandle);
-}
-
 void SsgiPass::CreateBlurInputSRV(ID3D12Resource* sourceRT, ID3D12Resource* sceneDepth, UINT descriptorStartIndex) {
     CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart(), descriptorStartIndex, m_srvDescriptorSize);
 
@@ -406,7 +378,6 @@ void SsgiPass::Render(ID3D12GraphicsCommandList* cmdList,
     ID3D12PipelineState* depthMaxPso,
     ID3D12PipelineState* ssgiPso,
     ID3D12PipelineState* upsamplePso,
-    ID3D12PipelineState* taaPso,
     ID3D12PipelineState* blurHPso,
     ID3D12PipelineState* blurVPso,
     ID3D12RootSignature* rootSig,
@@ -417,7 +388,6 @@ void SsgiPass::Render(ID3D12GraphicsCommandList* cmdList,
     if (m_giType != GIType::SSGI) return;
 
     (void)depthMaxPso;
-    (void)taaPso;
 
     UpdateConstants();
 

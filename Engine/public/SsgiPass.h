@@ -44,7 +44,6 @@ public:
         ID3D12PipelineState* depthMaxPso,
         ID3D12PipelineState* ssgiPso,
         ID3D12PipelineState* upsamplePso,
-        ID3D12PipelineState* taaPso,
         ID3D12PipelineState* blurHPso,
         ID3D12PipelineState* blurVPso,
         ID3D12RootSignature* rootSig,
@@ -101,7 +100,6 @@ private:
 
     void CreateDepthInputSRV(ID3D12Resource* sourceDepth, DXGI_FORMAT format, UINT descriptorIndex);
     void CreateRaymarchInputSRVs(ID3D12Resource* depthMaxTex, ID3D12Resource* baseColorRT, ID3D12Resource* normalRT, ID3D12Resource* sceneDepth, ID3D12Resource* historyRT, ID3D12Resource* velocityRT, UINT descriptorStartIndex);
-    void CreateTaaInputSRVs(ID3D12Resource* currentRT, ID3D12Resource* historyRT, ID3D12Resource* depthTex, ID3D12Resource* velocityTex, UINT descriptorStartIndex);
     void CreateBlurInputSRV(ID3D12Resource* sourceRT, ID3D12Resource* sceneDepth, UINT descriptorStartIndex);
 
 private:
