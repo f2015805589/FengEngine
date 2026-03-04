@@ -9,8 +9,8 @@
   </Parameters>
 
   <Textures>
-    <Texture name="BaseColorTex">Content/Texture/Default/TextureCache/White.texture.ast</Texture>
-    <Texture name="NormalTex">Content/Texture/Default/TextureCache/normal.texture.ast</Texture>
-    <Texture name="OrmTex">Content/Texture/Default/TextureCache/orm.texture.ast</Texture>
+    <Texture name="BaseColorTex">Content/Texture/Default/White.texture.ast</Texture>
+    <Texture name="NormalTex">Content/Texture/Default/normal.texture.ast</Texture>
+    <Texture name="OrmTex">Content/Texture/Default/orm.texture.ast</Texture>
   </Textures>
 </Material>
