@@ -364,9 +364,9 @@ float4 PSMain(VSOutput input) : SV_TARGET
     if (resolutionScale <= 1.0)
         intensityScale = 1.0;      // 全分辨率: 1x强度
     else if (resolutionScale <= 2.0)
-        intensityScale = 1.25;      // 半分辨率: 1.25x强度
+        intensityScale = 1.15;      // 半分辨率: 1.15x强度
     else
-        intensityScale = 1.5;      // 1/4分辨率: 1.5x强度
+        intensityScale = 1.3;      // 1/4分辨率: 1.3x强度
 
     // 应用强度
     indirect *= SSGIIntensity * intensityScale;
