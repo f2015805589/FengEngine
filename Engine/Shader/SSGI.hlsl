@@ -321,9 +321,9 @@ float4 PSMain(VSOutput input) : SV_TARGET
         if (resolutionScale <= 1.0)
             radiusScale = 1.0;      // 全分辨率: 6.0
         else if (resolutionScale <= 2.0)
-            radiusScale = 2.1;      // 半分辨率: 6.0/2.1 = 2.86
+            radiusScale = 2.6;      // 半分辨率: 6.0/2.6 = 2.3
         else
-            radiusScale = 3.33;     // 1/4分辨率: 6.0/3.33 = 1.8
+            radiusScale = 3;     // 1/4分辨率: 6.0/3 = 2
         float adjustedRadius = SSGIRadius / radiusScale;
 
         // 将视图空间射线投影到屏幕空间
