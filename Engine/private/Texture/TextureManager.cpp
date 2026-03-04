@@ -422,19 +422,15 @@ std::vector<std::string> TextureManager::GetAllTextureNames() const {
 // ========== 辅助函数 ==========
 
 std::string TextureManager::GenerateNameFromPath(const std::wstring& path) {
-    wchar_t fileName[MAX_PATH];
-    wcscpy_s(fileName, path.c_str());
-    PathStripPathW(fileName);
-    PathRemoveExtensionW(fileName);
+    // 使用完整路径作为名称，避免重名冲突
+    // 将路径中的反斜杠替换为正斜杠，统一格式
+    std::wstring normalizedPath = path;
+    std::replace(normalizedPath.begin(), normalizedPath.end(), L'\\', L'/');
 
-    // 如果是.texture.ast文件，再次移除.texture后缀
-    std::wstring name = fileName;
-    size_t pos = name.rfind(L".texture");
-    if (pos != std::wstring::npos) {
-        name = name.substr(0, pos);
-    }
+    // 转换为小写，避免大小写导致的重复
+    std::transform(normalizedPath.begin(), normalizedPath.end(), normalizedPath.begin(), ::towlower);
 
-    return WStringToString(name);
+    return WStringToString(normalizedPath);
 }
 
 bool TextureManager::IsAssetFile(const std::wstring& path) {

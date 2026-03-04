@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAsset name="f:/desktop/engine/fengine/content/texture/default/white.png" version="1.0">
+  <Source>
+    <Path>F:\desktop\Engine\FEngine\Content\Texture\Default\White.png</Path>
+    <SourceHash>ae78cfef941d4b3413d05cb05f48d71a</SourceHash>
+  </Source>
+  <TextureType>Texture2D</TextureType>
+  <Compression>
+    <Format>BC3</Format>
+    <GenerateMips>true</GenerateMips>
+    <sRGB>true</sRGB>
+  </Compression>
+  <Cache>
+    <DdsPath>F:\desktop\Engine\FEngine\Content\Texture\Default\TextureCache\White.dds</DdsPath>
+    <CacheValid>true</CacheValid>
+  </Cache>
+</TextureAsset>

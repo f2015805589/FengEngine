@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAsset name="f:/desktop/engine/fengine/content/texture/default/orm.png" version="1.0">
+  <Source>
+    <Path>F:\desktop\Engine\FEngine\Content\Texture\Default\orm.png</Path>
+    <SourceHash>053e4ed95975fc3c6f0ec3f9b3e46920</SourceHash>
+  </Source>
+  <TextureType>Texture2D</TextureType>
+  <Compression>
+    <Format>BC3</Format>
+    <GenerateMips>true</GenerateMips>
+    <sRGB>true</sRGB>
+  </Compression>
+  <Cache>
+    <DdsPath>F:\desktop\Engine\FEngine\Content\Texture\Default\TextureCache\orm.dds</DdsPath>
+    <CacheValid>true</CacheValid>
+  </Cache>
+</TextureAsset>

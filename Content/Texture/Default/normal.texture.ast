@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAsset name="f:/desktop/engine/fengine/content/texture/default/normal.png" version="1.0">
+  <Source>
+    <Path>F:\desktop\Engine\FEngine\Content\Texture\Default\normal.png</Path>
+    <SourceHash>6b897f2e15c824f3d92bdc98eb1bf7a7</SourceHash>
+  </Source>
+  <TextureType>Texture2D</TextureType>
+  <Compression>
+    <Format>BC3</Format>
+    <GenerateMips>true</GenerateMips>
+    <sRGB>true</sRGB>
+  </Compression>
+  <Cache>
+    <DdsPath>F:\desktop\Engine\FEngine\Content\Texture\Default\TextureCache\normal.dds</DdsPath>
+    <CacheValid>true</CacheValid>
+  </Cache>
+</TextureAsset>

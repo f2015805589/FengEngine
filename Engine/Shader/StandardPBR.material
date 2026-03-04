@@ -29,20 +29,20 @@
     </Parameter>
 
     <!-- 纹理参数：基础颜色贴图 -->
-    <Parameter name="BaseColorTexture" type="Texture2D" register="t10" offset="0">
-      <Default>Content/Texture/white.dds</Default>
+    <Parameter name="BaseColorTex" type="Texture2D" register="t10" offset="24">
+      <Default>Content/Texture/Default/White.dds</Default>
       <UIWidget>TexturePicker</UIWidget>
     </Parameter>
 
     <!-- 纹理参数：法线贴图 -->
-    <Parameter name="NormalTexture" type="Texture2D" register="t11" offset="0">
-      <Default>Content/Texture/normal_default.dds</Default>
+    <Parameter name="NormalTex" type="Texture2D" register="t11" offset="28">
+      <Default>Content/Texture/Default/normal.dds</Default>
       <UIWidget>TexturePicker</UIWidget>
     </Parameter>
 
     <!-- 纹理参数：ORM贴图 (Occlusion/Roughness/Metallic) -->
-    <Parameter name="OrmTexture" type="Texture2D" register="t12" offset="0">
-      <Default>Content/Texture/white.dds</Default>
+    <Parameter name="OrmTex" type="Texture2D" register="t12" offset="32">
+      <Default>Content/Texture/Default/orm.dds</Default>
       <UIWidget>TexturePicker</UIWidget>
     </Parameter>
   </Parameters>

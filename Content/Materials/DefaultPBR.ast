@@ -7,8 +7,8 @@
     <Parameter name="BaseColor" type="Vector4">1 1 1 1</Parameter>
   </Parameters>
   <Textures>
-    <Texture name="BaseColorTex" slot="t10">F:\desktop\Engine\FEngine\Content\Texture\color.texture.ast</Texture>
-    <Texture name="NormalTex" slot="t11">F:\desktop\Engine\FEngine\Content\Texture\normal.texture.ast</Texture>
-    <Texture name="OrmTex" slot="t12">F:\desktop\Engine\FEngine\Content\Texture\orm.texture.ast</Texture>
+    <Texture name="BaseColorTex" slot="t10">Content/Texture/color.texture.ast</Texture>
+    <Texture name="NormalTex" slot="t11">Content/Texture/normal.texture.ast</Texture>
+    <Texture name="OrmTex" slot="t12">Content/Texture/orm.texture.ast</Texture>
   </Textures>
 </Material>

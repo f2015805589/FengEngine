@@ -239,27 +239,40 @@ void MaterialEditorPanel::RenderTextureParameter(const ShaderParameter& param,
             // 加载纹理资源 - 使用TextureManager加载纹理
             TextureAsset* textureAsset = TextureManager::GetInstance().LoadTexture(fileName);
             if (textureAsset && textureAsset->IsLoaded()) {
-                // Bindless模式：在Scene的全局SRV堆中分配槽位
-                UINT srvIndex = Scene::AllocateBindlessSRVSlot();
-                if (srvIndex != UINT_MAX) {
-                    // 在Scene的SRV堆中创建纹理的SRV
-                    Scene::CreateBindlessTextureSRV(srvIndex, textureAsset->GetResource());
+                // 获取当前纹理的SRV索引
+                UINT currentSRVIndex = material->GetTextureSRVIndex(param.name);
+                UINT srvIndex = UINT_MAX;
 
-                    // 将SRV索引存储到材质实例中（会写入CB）
-                    // 注意：shader中g_BindlessTextures从t10开始，所以需要存储相对偏移量
-                    // srvIndex是绝对索引（10, 11, 12...），需要减去10得到相对偏移量（0, 1, 2...）
-                    UINT relativeIndex = srvIndex - 10;  // t10对应偏移0
-                    material->SetTextureSRVIndex(param.name, relativeIndex);
-
-                    // 保留旧的资源引用（用于兼容）
-                    material->SetTextureResource(param.name, textureAsset->GetResource(), param.registerSlot);
-
-                    std::cout << "MaterialEditorPanel: Texture '" << param.name
-                              << "' loaded at SRV slot " << srvIndex
-                              << " (relative index = " << relativeIndex << ")" << std::endl;
+                // 如果已经有有效的SRV槽位，复用它；否则分配新的
+                if (currentSRVIndex != UINT_MAX && currentSRVIndex < 990) {
+                    // 复用现有槽位（需要加上偏移10，因为存储的是相对索引）
+                    srvIndex = currentSRVIndex + 10;
+                    std::cout << "MaterialEditorPanel: Reusing SRV slot " << srvIndex << " for '" << param.name << "'" << std::endl;
                 } else {
-                    std::cout << "MaterialEditorPanel: Failed to allocate SRV slot" << std::endl;
+                    // 分配新的SRV槽位
+                    srvIndex = Scene::AllocateBindlessSRVSlot();
+                    if (srvIndex == UINT_MAX) {
+                        std::cout << "MaterialEditorPanel: Failed to allocate SRV slot" << std::endl;
+                        return;
+                    }
+                    std::cout << "MaterialEditorPanel: Allocated new SRV slot " << srvIndex << " for '" << param.name << "'" << std::endl;
                 }
+
+                // 在Scene的SRV堆中创建/更新纹理的SRV
+                Scene::CreateBindlessTextureSRV(srvIndex, textureAsset->GetResource());
+
+                // 将SRV索引存储到材质实例中（会写入CB）
+                // 注意：shader中g_BindlessTextures从t10开始，所以需要存储相对偏移量
+                // srvIndex是绝对索引（10, 11, 12...），需要减去10得到相对偏移量（0, 1, 2...）
+                UINT relativeIndex = srvIndex - 10;  // t10对应偏移0
+                material->SetTextureSRVIndex(param.name, relativeIndex);
+
+                // 保留旧的资源引用（用于兼容）
+                material->SetTextureResource(param.name, textureAsset->GetResource(), param.registerSlot);
+
+                std::cout << "MaterialEditorPanel: Texture '" << param.name
+                          << "' loaded at SRV slot " << srvIndex
+                          << " (relative index = " << relativeIndex << ")" << std::endl;
             } else {
                 std::cout << "MaterialEditorPanel: Failed to load texture" << std::endl;
             }
