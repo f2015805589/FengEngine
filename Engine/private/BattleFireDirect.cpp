@@ -633,6 +633,9 @@ void InitImGui(HWND hWnd, ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, U
 
 // ImGui����������
 void ShutdownImGui() {
+    if (ImGui::GetCurrentContext()) {
+        ImGui::DestroyPlatformWindows();
+    }
     ImGui_ImplDX12_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
@@ -751,6 +754,40 @@ bool ResizeSwapChainAndDepthBuffer(int newWidth, int newHeight, bool resizeWindo
                      SWP_NOMOVE | SWP_NOZORDER);
     }
 
+    return true;
+}
+
+bool ResizeSwapChainOnly(int newWidth, int newHeight) {
+    if (newWidth == gRenderWidth && newHeight == gRenderHeight) {
+        return true;
+    }
+    if (newWidth <= 0 || newHeight <= 0) {
+        return false;
+    }
+
+    WaitForCompletionOfCommandList();
+
+    for (int i = 0; i < 2; i++) {
+        if (gColorRTs[i]) {
+            gColorRTs[i]->Release();
+            gColorRTs[i] = nullptr;
+        }
+    }
+
+    HRESULT hr = gSwapChain->ResizeBuffers(2, newWidth, newHeight, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvHeapStart = gSwapChainRTVHeap->GetCPUDescriptorHandleForHeapStart();
+    for (int i = 0; i < 2; i++) {
+        gSwapChain->GetBuffer(i, IID_PPV_ARGS(&gColorRTs[i]));
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvPointer;
+        rtvPointer.ptr = rtvHeapStart.ptr + i * gRTVDescriptorSize;
+        gD3D12Device->CreateRenderTargetView(gColorRTs[i], nullptr, rtvPointer);
+    }
+
+    // 注意：gRenderWidth/gRenderHeight 由 ViewportManager 维护，表示视口渲染分辨率
     return true;
 }
 

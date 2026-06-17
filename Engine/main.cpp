@@ -1,4 +1,5 @@
 ﻿#include <windows.h>
+#include <windowsx.h>
 #include <commdlg.h>
 #include "public/BattleFireDirect.h"
 #include "public/StaticMeshComponent.h"
@@ -24,6 +25,7 @@
 #include "public/Texture/TexturePreviewPanel.h"
 #include "public/Texture/TextureCompressor.h"
 #include "public/PathUtils.h"
+#include "public/ViewportManager.h"
 #include <fstream>
 
 #pragma comment(lib,"d3d12.lib")
@@ -50,13 +52,92 @@ LPCTSTR gWindowClassName = L"BattleFire";
 Scene* g_scene = nullptr;
 MaterialEditorPanel* g_materialEditor = nullptr;        
 
+// 窗口物理尺寸变化 pending（仅调整 swapchain）
+static bool g_pendingSwapChainResize = false;
+static int g_pendingSwapChainWidth = 0;
+static int g_pendingSwapChainHeight = 0;
+
+// 鼠标是否悬停在 Viewport 窗口上（用于相机输入判定）
+bool g_viewportHovered = false;
+// Viewport 在主窗口客户区中的矩形（每帧更新，用于 WindowProc 实时命中判定）
+float g_viewportRectX = 0, g_viewportRectY = 0, g_viewportRectW = 0, g_viewportRectH = 0;
+
+// ---------------------------------------------------------------------------
+// 窗口布局持久化
+// 保存各面板的开关状态到 Saved/WindowLayout.ini，启动时读回。
+// ImGui 自身的 docking ini（FEngineLayout.ini）只记录停靠位置/分割比例，
+// 不记录窗口是否打开，所以这里单独管理可见性。
+// ---------------------------------------------------------------------------
+struct WindowLayoutState {
+    bool showSettingWindow = false;
+    bool showMainLightWindow = false;
+    bool showActorWindow = false;
+    bool showSceneWindow = false;
+    bool showResourceWindow = false;
+    bool showTexturePreview = false;
+    bool showActorPanel = false;
+    bool showMaterialEditorFromActor = false;
+
+    std::wstring IniPath() const {
+        return GetSavedConfigPath() + L"WindowLayout.ini";
+    }
+
+    void Load() {
+        std::ifstream fin(WToA(IniPath()));
+        if (!fin.is_open()) return;
+        std::string line;
+        while (std::getline(fin, line)) {
+            auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = line.substr(0, eq);
+            bool val = (line.substr(eq + 1) == "1");
+            if      (key == "Settings")          showSettingWindow = val;
+            else if (key == "MainLight")         showMainLightWindow = val;
+            else if (key == "ActorCreator")      showActorWindow = val;
+            else if (key == "Scene")             showSceneWindow = val;
+            else if (key == "ResourceManager")   showResourceWindow = val;
+            else if (key == "TexturePreview")    showTexturePreview = val;
+            else if (key == "ActorPanel")        showActorPanel = val;
+            else if (key == "MaterialEditor")    showMaterialEditorFromActor = val;
+        }
+    }
+
+    void Save() const {
+        std::ofstream fout(WToA(IniPath()));
+        if (!fout.is_open()) return;
+        fout << "[Windows]\n";
+        fout << "Settings="        << (showSettingWindow ? 1 : 0) << "\n";
+        fout << "MainLight="       << (showMainLightWindow ? 1 : 0) << "\n";
+        fout << "ActorCreator="    << (showActorWindow ? 1 : 0) << "\n";
+        fout << "Scene="           << (showSceneWindow ? 1 : 0) << "\n";
+        fout << "ResourceManager=" << (showResourceWindow ? 1 : 0) << "\n";
+        fout << "TexturePreview="  << (showTexturePreview ? 1 : 0) << "\n";
+        fout << "ActorPanel="      << (showActorPanel ? 1 : 0) << "\n";
+        fout << "MaterialEditor="  << (showMaterialEditorFromActor ? 1 : 0) << "\n";
+    }
+};
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 LRESULT CALLBACK WindowProc(HWND inHWND, UINT inMSG, WPARAM inWParam, LPARAM inLParam) {
-    if (ImGui_ImplWin32_WndProcHandler(inHWND, inMSG, inWParam, inLParam))
-        return true;
+    // 让 ImGui 先处理消息（ docking 窗口需要）
+    ImGui_ImplWin32_WndProcHandler(inHWND, inMSG, inWParam, inLParam);
 
-    if (g_scene) {
+    // 判定是否把输入传给 Scene
+    bool forwardToScene = true;
+    if (ImGui::GetCurrentContext()) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantCaptureMouse && !g_viewportHovered) {
+            // 鼠标不在 Viewport 上且 ImGui 正在处理鼠标 —— 拦截鼠标消息
+            // 但 WM_LBUTTONUP / WM_RBUTTONUP 始终转发，确保相机能清除拖拽状态
+            if (inMSG >= WM_MOUSEFIRST && inMSG <= WM_MOUSELAST) {
+                forwardToScene = (inMSG == WM_LBUTTONUP) || (inMSG == WM_RBUTTONUP);
+            }
+            // 键盘消息（WASD 等）始终转发
+        }
+    }
+
+    if (g_scene && forwardToScene) {
         g_scene->HandleInput(inHWND, inMSG, inWParam, inLParam);
     }
 
@@ -67,9 +148,11 @@ LRESULT CALLBACK WindowProc(HWND inHWND, UINT inMSG, WPARAM inWParam, LPARAM inL
     case WM_SIZE: {
         int newWidth = LOWORD(inLParam);
         int newHeight = HIWORD(inLParam);
-        // 当窗口大小改变时，请求分辨率变更（排除最小化情况）
+        // 当窗口大小改变时，仅标记交换链需要 resize；viewport 由 Docking 布局下一帧自动调整
         if (newWidth > 0 && newHeight > 0) {
-            Settings::GetInstance().RequestResolutionChange(newWidth, newHeight);
+            g_pendingSwapChainResize = true;
+            g_pendingSwapChainWidth = newWidth;
+            g_pendingSwapChainHeight = newHeight;
         }
     }
                 break;
@@ -80,6 +163,10 @@ LRESULT CALLBACK WindowProc(HWND inHWND, UINT inMSG, WPARAM inWParam, LPARAM inL
 }
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nShowCmd) {
+    // 抑制 libpng 的 iCCP 警告（DirectXTex 内部使用 libpng，通过 stderr 输出）
+    FILE* dummy = nullptr;
+    freopen_s(&dummy, "NUL", "w", stderr);
+
     WNDCLASSEX wndClassEx;
     wndClassEx.cbSize = sizeof(WNDCLASSEX);
     wndClassEx.style = CS_HREDRAW | CS_VREDRAW;
@@ -123,6 +210,30 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     Settings::GetInstance().Initialize(viewportWidth, viewportHeight);
 
     InitImGui(hwnd, gD3D12Device, gImGuiDescriptorHeap, gD3D12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV));
+
+    {
+        // 启用 ImGui Docking 并指定布局 ini 文件路径
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+
+        std::wstring iniPathW = GetSavedConfigPath() + L"FEngineLayout.ini";
+        int len = WideCharToMultiByte(CP_UTF8, 0, iniPathW.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        static std::string s_iniPath;
+        s_iniPath.resize(len);
+        WideCharToMultiByte(CP_UTF8, 0, iniPathW.c_str(), -1, &s_iniPath[0], len, nullptr, nullptr);
+        io.IniFilename = s_iniPath.c_str();
+    }
+
+    // 初始化 ViewportManager（管理视口颜色和深度缓冲）
+    if (!ViewportManager::GetInstance().Initialize(gD3D12Device, gImGuiDescriptorHeap)) {
+        MessageBox(NULL, L"ViewportManager初始化失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
+    if (!ViewportManager::GetInstance().Resize(viewportWidth, viewportHeight)) {
+        MessageBox(NULL, L"ViewportManager初始Resize失败!", L"错误", MB_OK | MB_ICONERROR);
+        return -1;
+    }
 
     // 初始化材质管理器
     if (!MaterialManager::GetInstance().Initialize(gD3D12Device)) {
@@ -558,15 +669,22 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     MSG msg = {};
     DWORD last_time = timeGetTime();
-    bool showSettingWindow = false;
-    bool showMainLightWindow = false;
-    bool showActorWindow = false;     // Actor创建面板
-    bool showSceneWindow = false;     // 场景窗口
-    bool showResourceWindow = false;  // 资源管理器窗口
-    bool showTexturePreview = false;  // 纹理预览面板
+
+    WindowLayoutState layout;
+    layout.Load();
+    // 同步材质编辑器内部可见状态（TexturePreview 在渲染循环中会自同步）
+    if (layout.showMaterialEditorFromActor && g_materialEditor) {
+        g_materialEditor->Show();
+    }
+    bool& showSettingWindow = layout.showSettingWindow;
+    bool& showMainLightWindow = layout.showMainLightWindow;
+    bool& showActorWindow = layout.showActorWindow;
+    bool& showSceneWindow = layout.showSceneWindow;
+    bool& showResourceWindow = layout.showResourceWindow;
+    bool& showTexturePreview = layout.showTexturePreview;
     static Actor* selectedActor = nullptr;  // 当前选中的Actor
-    static bool showActorPanel = false;  // Actor面板（包含材质和Transform）
-    static bool showMaterialEditorFromActor = false;  // 从Actor面板打开的材质编辑器
+    bool& showActorPanel = layout.showActorPanel;  // Actor面板（包含材质和Transform）
+    bool& showMaterialEditorFromActor = layout.showMaterialEditorFromActor;  // 从Actor面板打开的材质编辑器
     static float mouseSpeed = 5.0f;
     static float moveSpeed = 50.0f;
     // 光照旋转角度（弧度），范围限制在-π到π
@@ -577,6 +695,24 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     int fontWidth, fontHeight;
     io.Fonts->GetTexDataAsRGBA32(&fontData, &fontWidth, &fontHeight);
 
+    // Viewport 尺寸变更队列（由 Docking 布局变化触发，延迟一帧处理）
+    int pendingViewportWidth = viewportWidth;
+    int pendingViewportHeight = viewportHeight;
+    bool pendingViewportResize = false;
+
+    // 统一调整视口相关渲染目标尺寸
+    auto ResizeViewportRenderTargets = [&](int newWidth, int newHeight) {
+        if (newWidth <= 0 || newHeight <= 0) return;
+        ViewportManager::GetInstance().Resize(newWidth, newHeight);
+        g_scene->ResizeRenderTargets(newWidth, newHeight);
+        lightPass->Resize(newWidth, newHeight);
+        screenPass->Resize(newWidth, newHeight);
+        taaPass->Resize(newWidth, newHeight);
+        gtaoPass->Resize(newWidth, newHeight);
+        ssgiPass->Resize(newWidth, newHeight);
+        Settings::GetInstance().SetResolution(newWidth, newHeight);
+    };
+
     while (true) {
         if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) break;
@@ -586,65 +722,78 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
         else {
             WaitForCompletionOfCommandList();
 
-            // ======= 处理分辨率变更请求 =======
+            // ======= 处理窗口物理尺寸变更（仅调整 swapchain）=======
+            if (g_pendingSwapChainResize) {
+                int newWidth = g_pendingSwapChainWidth;
+                int newHeight = g_pendingSwapChainHeight;
+                g_pendingSwapChainResize = false;
+
+                HRESULT hr = commandAllocator->Reset();
+                if (SUCCEEDED(hr)) {
+                    hr = commandList->Reset(commandAllocator, nullptr);
+                    if (SUCCEEDED(hr)) {
+                        commandList->Close();
+                    }
+                }
+                FlushGPU();
+
+                ResizeSwapChainOnly(newWidth, newHeight);
+
+                commandAllocator->Reset();
+            }
+
+            // ======= 处理视口尺寸变更（由上一帧 Docking 布局变化触发）======
+            if (pendingViewportResize) {
+                int newWidth = pendingViewportWidth;
+                int newHeight = pendingViewportHeight;
+                pendingViewportResize = false;
+
+                HRESULT hr = commandAllocator->Reset();
+                if (SUCCEEDED(hr)) {
+                    hr = commandList->Reset(commandAllocator, nullptr);
+                    if (SUCCEEDED(hr)) {
+                        commandList->Close();
+                    }
+                }
+                FlushGPU();
+
+                ResizeViewportRenderTargets(newWidth, newHeight);
+
+                char debugMsg[256];
+                sprintf_s(debugMsg, "Viewport resized to %dx%d\n", newWidth, newHeight);
+                OutputDebugStringA(debugMsg);
+
+                commandAllocator->Reset();
+            }
+
+            // ======= 处理分辨率变更请求（用户从 Setting UI 选择）=======
             if (Settings::GetInstance().IsPendingResolutionChange()) {
                 int newWidth, newHeight;
                 Settings::GetInstance().GetPendingResolution(newWidth, newHeight);
                 bool shouldResizeWindow = Settings::GetInstance().ShouldResizeWindow();
                 Settings::GetInstance().ClearPendingResolutionChange();
 
-                // 确保GPU完全空闲，所有命令都已完成
                 WaitForCompletionOfCommandList();
-
-                // 重置CommandAllocator（确保没有待执行的命令）
-                // 注意：前一帧的EndCommandList已经close了commandList
                 HRESULT hr = commandAllocator->Reset();
-                if (FAILED(hr)) {
-                    OutputDebugStringA("WARNING: commandAllocator->Reset() failed before resize\n");
-                }
-
-                // 创建一个dummy command list并关闭，确保command list状态正确
-                hr = commandList->Reset(commandAllocator, nullptr);
                 if (SUCCEEDED(hr)) {
-                    commandList->Close();
+                    hr = commandList->Reset(commandAllocator, nullptr);
+                    if (SUCCEEDED(hr)) {
+                        commandList->Close();
+                    }
                 }
-
-                // 使用FlushGPU确保GPU完全空闲
                 FlushGPU();
 
-                // 1. 调整交换链和深度缓冲（传递是否需要调整窗口大小）
-                if (ResizeSwapChainAndDepthBuffer(newWidth, newHeight, shouldResizeWindow)) {
-                    // 2. 调整Scene的离屏RT
-                    g_scene->ResizeRenderTargets(newWidth, newHeight);
-
-                    // 3. 调整LightPass
-                    lightPass->Resize(newWidth, newHeight);
-
-                    // 4. 调整ScreenPass
-                    screenPass->Resize(newWidth, newHeight);
-
-                    // 5. 调整TaaPass
-                    taaPass->Resize(newWidth, newHeight);
-
-                    // 6. 调整GtaoPass
-                    gtaoPass->Resize(newWidth, newHeight);
-
-                    // 7. 调整SsgiPass
-                    ssgiPass->Resize(newWidth, newHeight);
-
-                    // 8. 更新Settings
-                    Settings::GetInstance().SetResolution(newWidth, newHeight);
-
-                    // 调试输出
-                    char debugMsg[256];
-                    sprintf_s(debugMsg, "Resolution changed to %dx%d\n", newWidth, newHeight);
-                    OutputDebugStringA(debugMsg);
-                } else {
-                    // Resize失败，输出错误信息
-                    OutputDebugStringA("ERROR: ResizeSwapChainAndDepthBuffer failed!\n");
+                if (shouldResizeWindow) {
+                    // 用户从下拉框选择分辨率：调整窗口与交换链
+                    ResizeSwapChainOnly(newWidth, newHeight);
                 }
+                // 调整视口渲染目标（viewport 可能不等于窗口，但这里用请求值作为目标渲染分辨率）
+                ResizeViewportRenderTargets(newWidth, newHeight);
 
-                // 重置commandAllocator以便后续正常渲染
+                char debugMsg[256];
+                sprintf_s(debugMsg, "Resolution changed to %dx%d\n", newWidth, newHeight);
+                OutputDebugStringA(debugMsg);
+
                 commandAllocator->Reset();
             }
 
@@ -741,12 +890,27 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 WaitForCompletionOfCommandList();  // Wait for SsgiPass to complete
             }
 
+            // 视口颜色缓冲 RTV（SkyPass / ScreenPass / TAA 的最终输出目标）
+            D3D12_CPU_DESCRIPTOR_HANDLE viewportColorRTV = ViewportManager::GetInstance().GetColorRTV();
+            int viewportWidthCurrent = ViewportManager::GetInstance().GetWidth();
+            int viewportHeightCurrent = ViewportManager::GetInstance().GetHeight();
+
             //SkyPass=======================================
             // 执行SkyPass（渲染天空球，在ScreenPass之前）
-            // 当TAA启用时，渲染到中间RT；否则渲染到交换链
+            // 当TAA启用时，渲染到中间RT；否则渲染到视口颜色缓冲
             if (skyPso) {
                 commandList->Reset(commandAllocator, skyPso);
                 commandList->BeginEvent(0, L"SkyPass", (UINT)(wcslen(L"SkyPass") * sizeof(wchar_t)));
+
+                // 视口颜色缓冲从 PIXEL_SHADER_RESOURCE 转回 RENDER_TARGET，供 3D Pass 写入
+                D3D12_RESOURCE_BARRIER viewportColorBarrier = {};
+                viewportColorBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                viewportColorBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+                viewportColorBarrier.Transition.pResource = ViewportManager::GetInstance().GetColorTexture();
+                viewportColorBarrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                viewportColorBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+                viewportColorBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                commandList->ResourceBarrier(1, &viewportColorBarrier);
 
                 if (taaPass->IsEnabled()) {
                     // TAA启用：渲染到中间RT
@@ -763,16 +927,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     commandList->RSSetViewports(1, &viewport);
                     commandList->RSSetScissorRects(1, &scissorRect);
                 } else {
-                    // TAA禁用：渲染到交换链
-                    BeginRenderToSwapChain(commandList, true, false);
+                    // TAA禁用：渲染到视口颜色缓冲
+                    float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+                    commandList->ClearRenderTargetView(viewportColorRTV, clearColor, 0, nullptr);
+                    commandList->OMSetRenderTargets(1, &viewportColorRTV, FALSE, nullptr);
+
+                    D3D12_VIEWPORT viewport = { 0, 0, (float)viewportWidthCurrent, (float)viewportHeightCurrent, 0.0f, 1.0f };
+                    D3D12_RECT scissorRect = { 0, 0, viewportWidthCurrent, viewportHeightCurrent };
+                    commandList->RSSetViewports(1, &viewport);
+                    commandList->RSSetScissorRects(1, &scissorRect);
                 }
 
                 ComPtr<ID3D12Resource> skyTextureForSky = g_scene->ReturnSkyCube();
                 skyPass->Render(commandList, skyPso, rootSignature, skyTextureForSky);
-
-                if (!taaPass->IsEnabled()) {
-                    EndRenderToSwapChain(commandList);
-                }
 
                 commandList->EndEvent();
                 EndCommandList();
@@ -796,8 +963,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 commandList->RSSetViewports(1, &viewport);
                 commandList->RSSetScissorRects(1, &scissorRect);
             } else {
-                // TAA禁用：渲染到交换链
-                BeginRenderToSwapChain(commandList, false, false);
+                // TAA禁用：渲染到视口颜色缓冲
+                commandList->OMSetRenderTargets(1, &viewportColorRTV, FALSE, nullptr);
+
+                D3D12_VIEWPORT viewport = { 0, 0, (float)viewportWidthCurrent, (float)viewportHeightCurrent, 0.0f, 1.0f };
+                D3D12_RECT scissorRect = { 0, 0, viewportWidthCurrent, viewportHeightCurrent };
+                commandList->RSSetViewports(1, &viewport);
+                commandList->RSSetScissorRects(1, &scissorRect);
             }
 
             auto& sceneRTs = g_scene->m_offscreenRTs;
@@ -813,7 +985,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 gtaoPass->GetAOTexture(),  // GTAO输出（关闭时为白色纹理）
                 ssgiPass->GetSSGITexture());  // SSGI输出（关闭时为黑色纹理）
 
-            // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧和BeginRenderToSwapChain使用
+            // 将深度缓冲转换回DEPTH_WRITE状态，供下一帧BasePass使用
             D3D12_RESOURCE_BARRIER depthBarrier = {};
             depthBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             depthBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
@@ -822,10 +994,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             depthBarrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
             depthBarrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             commandList->ResourceBarrier(1, &depthBarrier);
-
-            if (!taaPass->IsEnabled()) {
-                EndRenderToSwapChain(commandList);
-            }
 
             commandList->EndEvent();
             EndCommandList();
@@ -841,19 +1009,22 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
                 // 执行TAA（从中间RT读取，输出到历史缓冲）
                 taaPass->RenderToSwapChain(commandList, taaPso, rootSignature,
-                    motionVectorRT, gDSRT, GetCurrentSwapChainRTV());
+                    motionVectorRT, gDSRT, viewportColorRTV);
 
                 commandList->EndEvent();
                 EndCommandList();
                 WaitForCompletionOfCommandList();
 
-                // 复制TAA结果到交换链
+                // 复制TAA结果到视口颜色缓冲
                 commandList->Reset(commandAllocator, taaCopyPso);
                 commandList->BeginEvent(0, L"TaaCopy", (UINT)(wcslen(L"TaaCopy") * sizeof(wchar_t)));
 
-                BeginRenderToSwapChain(commandList, true, false);
-                taaPass->CopyToSwapChain(commandList, taaCopyPso, rootSignature, GetCurrentSwapChainRTV());
-                EndRenderToSwapChain(commandList);
+                commandList->OMSetRenderTargets(1, &viewportColorRTV, FALSE, nullptr);
+                D3D12_VIEWPORT copyViewport = { 0, 0, (float)viewportWidthCurrent, (float)viewportHeightCurrent, 0.0f, 1.0f };
+                D3D12_RECT copyScissor = { 0, 0, viewportWidthCurrent, viewportHeightCurrent };
+                commandList->RSSetViewports(1, &copyViewport);
+                commandList->RSSetScissorRects(1, &copyScissor);
+                taaPass->CopyToSwapChain(commandList, taaCopyPso, rootSignature, viewportColorRTV);
 
                 commandList->EndEvent();
                 EndCommandList();
@@ -930,6 +1101,43 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
                 ImGui::EndMainMenuBar();
             }
+
+            // 全窗口 DockSpace
+            {
+                ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+                ImGui::DockSpaceOverViewport(dockspace_id, ImGui::GetMainViewport(), ImGuiDockNodeFlags_None);
+            }
+
+            // Viewport 窗口：显示 3D 渲染结果
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            g_viewportHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
+            {
+                ImVec2 vpPos = ImGui::GetWindowPos();
+                ImVec2 vpSize = ImGui::GetWindowSize();
+                g_viewportRectX = vpPos.x;
+                g_viewportRectY = vpPos.y;
+                g_viewportRectW = vpSize.x;
+                g_viewportRectH = vpSize.y;
+                ImVec2 contentAvail = ImGui::GetContentRegionAvail();
+                int newViewportW = (int)contentAvail.x;
+                int newViewportH = (int)contentAvail.y;
+                if (newViewportW > 0 && newViewportH > 0 &&
+                    (newViewportW != ViewportManager::GetInstance().GetWidth() ||
+                     newViewportH != ViewportManager::GetInstance().GetHeight())) {
+                    pendingViewportWidth = newViewportW;
+                    pendingViewportHeight = newViewportH;
+                    pendingViewportResize = true;
+                }
+
+                int displayW = ViewportManager::GetInstance().GetWidth();
+                int displayH = ViewportManager::GetInstance().GetHeight();
+                if (displayW > 0 && displayH > 0) {
+                    ImGui::Image((ImTextureID)ViewportManager::GetInstance().GetColorSRV().ptr, ImVec2((float)displayW, (float)displayH));
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar();
 
             if (showSettingWindow) {
                 ImGui::Begin("Setting window", &showSettingWindow);
@@ -1295,7 +1503,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             }
 
             ImGui::Render();
-            BeginRenderToSwapChain(commandList, false);
+
+            // 转换视口颜色缓冲到 PIXEL_SHADER_RESOURCE，供 ImGui Image 显示
+            D3D12_RESOURCE_BARRIER viewportColorBarrierUI = {};
+            viewportColorBarrierUI.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            viewportColorBarrierUI.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            viewportColorBarrierUI.Transition.pResource = ViewportManager::GetInstance().GetColorTexture();
+            viewportColorBarrierUI.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            viewportColorBarrierUI.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            viewportColorBarrierUI.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            commandList->ResourceBarrier(1, &viewportColorBarrierUI);
+
+            BeginRenderToSwapChain(commandList, true, false);
             ID3D12DescriptorHeap* ppHeaps[] = { gImGuiDescriptorHeap };
             commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -1312,12 +1531,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     delete gtaoPass;
     delete ssgiPass;
 
+    // 保存窗口布局状态到 Saved/WindowLayout.ini
+    layout.Save();
+
     // 清理纹理系统
     TexturePreviewPanel::GetInstance().Shutdown();
     TextureCompressor::GetInstance().Shutdown();
     TextureManager::GetInstance().Shutdown();
 
     MaterialManager::GetInstance().Shutdown();
+    ViewportManager::GetInstance().Shutdown();
     ShutdownImGui();
     BasePso->Release();
     lightPso->Release();

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 #include <vector>
 #include <map>
@@ -93,8 +93,14 @@ private:
     // 从文件路径提取资源名称
     std::string ExtractResourceName(const std::wstring& filePath);
 
-    // 渲染文件树节点（递归）
-    void RenderFileTreeNode(FileTreeNode* node);
+    // 左侧文件夹树（仅目录）
+    void RenderFolderTree(FileTreeNode* node);
+    // 右侧平铺视图（文件+文件夹）
+    void RenderTileView(FileTreeNode* node);
+    // 按路径查找节点
+    FileTreeNode* FindNodeByPath(FileTreeNode* root, const std::wstring& path);
+    // 查找 target 的父节点
+    FileTreeNode* FindParentNode(FileTreeNode* root, FileTreeNode* target, FileTreeNode* curParent);
 
     ID3D12Device* m_device = nullptr;
     ID3D12RootSignature* m_rootSignature = nullptr;
@@ -110,4 +116,9 @@ private:
     // 路径配置（在Initialize中动态设置）
     std::wstring m_contentPath;
     std::wstring m_enginePath;
+
+    // 双面板导航状态
+    FileTreeNode* m_leftSelected = nullptr;   // 左侧树选中的文件夹
+    FileTreeNode* m_rightCurrent   = nullptr;   // 右侧当前显示的目录
+    FileTreeNode* m_rightSelected  = nullptr;   // 右侧选中项（高亮）
 };

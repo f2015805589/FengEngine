@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TextureAsset name="normal" version="1.0">
   <Source>
-    <Path>F:\desktop\Engine\FEngine\Content\Texture\normal.png</Path>
+    <Path>Content\Texture\normal.png</Path>
     <SourceHash>32a0aad164b9e7a92d3df97109221e97</SourceHash>
   </Source>
   <TextureType>Texture2D</TextureType>

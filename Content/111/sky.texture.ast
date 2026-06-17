@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextureAsset name="f:/desktop/engine/fengine/content/111/sky.jpg" version="1.0">
+  <Source>
+    <Path>Content\111\sky.jpg</Path>
+    <SourceHash>f51140f53e255c7f1e6e160e56fe7eff</SourceHash>
+  </Source>
+  <TextureType>Texture2D</TextureType>
+  <Compression>
+    <Format>None</Format>
+    <GenerateMips>true</GenerateMips>
+    <sRGB>true</sRGB>
+  </Compression>
+  <Cache>
+    <DdsPath>Content\111\TextureCache\sky.dds</DdsPath>
+    <CacheValid>false</CacheValid>
+  </Cache>
+  <RuntimeInfo>
+    <Width>8192</Width>
+    <Height>4096</Height>
+    <MipLevels>1</MipLevels>
+    <MemorySize>134217728</MemorySize>
+  </RuntimeInfo>
+</TextureAsset>

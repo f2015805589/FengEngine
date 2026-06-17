@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <d3dcompiler.h>
@@ -113,6 +113,9 @@ void InitImGui(HWND hWnd, ID3D12Device* device, ID3D12DescriptorHeap* srvHeap, U
 // resizeWindow: 是否同时调整窗口大小（从UI选择分辨率时为true，窗口拖动时为false）
 // 返回 true 表示成功，false 表示失败
 bool ResizeSwapChainAndDepthBuffer(int newWidth, int newHeight, bool resizeWindow = true);
+
+// 仅调整交换链大小（用于窗口物理尺寸变化，viewport 由 ViewportManager 单独管理）
+bool ResizeSwapChainOnly(int newWidth, int newHeight);
 
 // 获取当前渲染分辨率
 int GetRenderWidth();

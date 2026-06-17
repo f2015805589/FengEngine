@@ -2,6 +2,8 @@
 #include <DirectXMath.h>
 #include <imgui.h>
 
+extern bool g_viewportHovered;
+
 using namespace DirectX;
 
 Camera::Camera(float fov, float aspectRatio, float nearZ, float farZ) {
@@ -48,8 +50,10 @@ void Camera::Update(float deltaTime) {
 }
 
 void Camera::HandleInput(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    // 若ImGui捕获鼠标，则不处理摄像机输入
-    if (ImGui::GetIO().WantCaptureMouse) {
+    // WM_LBUTTONUP / WM_RBUTTONUP 始终处理，确保拖拽状态被清除
+    // （否则拖动 docking 分隔条后 m_isMouseDown 可能残留为 true）
+    bool isButtonUp = (msg == WM_LBUTTONUP || msg == WM_RBUTTONUP);
+    if (!isButtonUp && ImGui::GetIO().WantCaptureMouse && !g_viewportHovered) {
         return;
     }
 

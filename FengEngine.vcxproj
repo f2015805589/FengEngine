@@ -162,6 +162,7 @@
     <ClCompile Include="Engine\private\Texture\TextureCompressor.cpp" />
     <ClCompile Include="Engine\private\Texture\TextureManager.cpp" />
     <ClCompile Include="Engine\private\Texture\TexturePreviewPanel.cpp" />
+    <ClCompile Include="Engine\private\ViewportManager.cpp" />
     <ClCompile Include="ImGui\imgui.cpp" />
     <ClCompile Include="ImGui\imgui_demo.cpp" />
     <ClCompile Include="ImGui\imgui_draw.cpp" />
@@ -200,6 +201,7 @@
     <ClInclude Include="Engine\public\Texture\TextureCompressor.h" />
     <ClInclude Include="Engine\public\Texture\TextureManager.h" />
     <ClInclude Include="Engine\public\Texture\TexturePreviewPanel.h" />
+    <ClInclude Include="Engine\public\ViewportManager.h" />
     <ClInclude Include="ImGui\imconfig.h" />
     <ClInclude Include="ImGui\imgui.h" />
     <ClInclude Include="ImGui\imgui_impl_dx12.h" />

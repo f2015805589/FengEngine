@@ -1,4 +1,4 @@
-#include "public/ResourceManager.h"
+﻿#include "public/ResourceManager.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/Shader.h"
 #include "public/Texture/TexturePreviewPanel.h"
@@ -283,128 +283,237 @@ int ResourceManager::GetLoadedMaterialCount() const {
     return count;
 }
 
-void ResourceManager::RenderFileTreeNode(FileTreeNode* node) {
+// ---------------------------------------------------------------------------
+// 辅助：wstring → string（UTF-8）
+// ---------------------------------------------------------------------------
+static std::string WToUtf8(const std::wstring& w) {
+    if (w.empty()) return "";
+    int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string s(len - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], len, nullptr, nullptr);
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// 辅助：按完整路径在树中查找节点
+// ---------------------------------------------------------------------------
+FileTreeNode* ResourceManager::FindNodeByPath(FileTreeNode* root, const std::wstring& path) {
+    if (!root) return nullptr;
+    // 规范化比较：去掉末尾反斜杠
+    auto normalize = [](std::wstring p) -> std::wstring {
+        if (!p.empty() && (p.back() == L'\\' || p.back() == L'/'))
+            p.pop_back();
+        return p;
+    };
+    std::wstring target = normalize(path);
+    if (normalize(root->fullPath) == target) return root;
+    for (auto* child : root->children) {
+        if (auto* found = FindNodeByPath(child, path))
+            return found;
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// 查找 target 的父节点
+// ---------------------------------------------------------------------------
+FileTreeNode* ResourceManager::FindParentNode(FileTreeNode* root, FileTreeNode* target, FileTreeNode* curParent) {
+    if (root == target) return curParent;
+    for (auto* c : root->children) {
+        if (c->isDirectory) {
+            if (auto* p = FindParentNode(c, target, root)) return p;
+        }
+    }
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// 左侧：文件夹树（仅目录，递归 TreeNode）
+// ---------------------------------------------------------------------------
+void ResourceManager::RenderFolderTree(FileTreeNode* node) {
+    if (!node || !node->isDirectory) return;
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+    if (node->children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (node == m_leftSelected) flags |= ImGuiTreeNodeFlags_Selected;
+
+    bool open = ImGui::TreeNodeEx(node->name.c_str(), flags);
+
+    // 单击选中 → 右侧跳到该文件夹
+    if (ImGui::IsItemClicked()) {
+        m_leftSelected = node;
+        m_rightCurrent = node;
+        m_rightSelected = nullptr;
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("%s", WToUtf8(node->fullPath).c_str());
+        ImGui::EndTooltip();
+    }
+
+    if (open) {
+        for (auto* child : node->children) {
+            if (child->isDirectory) RenderFolderTree(child);
+        }
+        ImGui::TreePop();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 右侧：平铺视图（显示当前目录下的文件夹+文件）
+// ---------------------------------------------------------------------------
+void ResourceManager::RenderTileView(FileTreeNode* node) {
     if (!node) return;
 
-    if (node->isDirectory) {
-        // 文件夹节点
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        if (node->children.empty()) {
-            flags |= ImGuiTreeNodeFlags_Leaf;
+    // 面包屑导航
+    ImGui::TextDisabled(">");
+    ImGui::SameLine();
+    ImGui::Text("%s", WToUtf8(node->fullPath).c_str());
+    ImGui::Separator();
+
+    // 没有 children
+    if (node->children.empty()) {
+        ImGui::TextDisabled("(empty)");
+        return;
+    }
+
+    // 平铺网格：每个项占一定宽度
+    float itemW = 120.0f;
+    float availW = ImGui::GetContentRegionAvail().x;
+    int perRow = (std::max)(1, (int)(availW / itemW));
+
+    for (int i = 0; i < (int)node->children.size(); i++) {
+        FileTreeNode* child = node->children[i];
+
+        if (i > 0 && (i % perRow) != 0) ImGui::SameLine();
+
+        // 选中高亮
+        bool selected = (child == m_rightSelected);
+        ImVec4 bg = selected ? ImVec4(0.3f, 0.5f, 0.8f, 0.6f) : ImVec4(0, 0, 0, 0);
+        ImGui::PushStyleColor(ImGuiCol_Button, bg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.4f, 0.4f, 0.4f, 0.4f));
+
+        // 按钮标签：文件夹加 [D]，文件加扩展名缩写
+        char label[256];
+        if (child->isDirectory) {
+            snprintf(label, sizeof(label), "[D] %s", child->name.c_str());
+        } else {
+            snprintf(label, sizeof(label), "%s", child->name.c_str());
         }
 
-        bool nodeOpen = ImGui::TreeNodeEx(node->name.c_str(), flags);
-
-        // 显示路径提示
-        if (ImGui::IsItemHovered()) {
-            ImGui::BeginTooltip();
-            std::string pathStr;
-            int len = WideCharToMultiByte(CP_UTF8, 0, node->fullPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-            if (len > 0) {
-                pathStr.resize(len - 1);
-                WideCharToMultiByte(CP_UTF8, 0, node->fullPath.c_str(), -1, &pathStr[0], len, nullptr, nullptr);
-            }
-            ImGui::Text("%s", pathStr.c_str());
-            ImGui::EndTooltip();
+        if (ImGui::Button(label, ImVec2(itemW - 8, 0))) {
+            m_rightSelected = child;
         }
+        ImGui::PopStyleColor(2);
 
-        if (nodeOpen) {
-            // 递归渲染子节点
-            for (auto* child : node->children) {
-                RenderFileTreeNode(child);
-            }
-            ImGui::TreePop();
-        }
-    } else {
-        // 文件节点
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-
-        // 根据文件类型显示不同颜色
-        ImVec4 color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-        if (node->extension == ".shader") {
-            color = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);  // 绿色 - shader文件
-        } else if (node->extension == ".hlsl") {
-            color = ImVec4(0.5f, 0.8f, 1.0f, 1.0f);  // 蓝色 - hlsl文件
-        } else if (node->extension == ".mesh") {
-            color = ImVec4(1.0f, 0.8f, 0.5f, 1.0f);  // 橙色 - mesh文件
-        } else if (node->extension == ".level") {
-            color = ImVec4(1.0f, 0.5f, 1.0f, 1.0f);  // 粉色 - level文件
-        } else if (node->extension == ".png" || node->extension == ".jpg" ||
-                   node->extension == ".dds" || node->extension == ".hdr" ||
-                   node->extension == ".ast") {
-            color = ImVec4(1.0f, 1.0f, 0.5f, 1.0f);  // 黄色 - 纹理文件
-        } else if (node->extension == ".material") {
-            color = ImVec4(0.8f, 0.5f, 1.0f, 1.0f);  // 紫色 - 材质文件
-        }
-
-        ImGui::PushStyleColor(ImGuiCol_Text, color);
-        ImGui::TreeNodeEx(node->name.c_str(), flags);
-        ImGui::PopStyleColor();
-
-        // 双击纹理文件打开预览
+        // 双击行为
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-            if (IsTextureFile(node->extension)) {
-                // 打开纹理预览面板
-                TexturePreviewPanel::GetInstance().SetTexturePath(node->fullPath);
-                std::cout << "Opening texture preview: " << node->name << std::endl;
+            if (child->isDirectory) {
+                // 双击文件夹 → 进入该文件夹，左侧同步选中
+                m_rightCurrent = child;
+                m_rightSelected = nullptr;
+                m_leftSelected = child;
+            } else {
+                // 双击文件 → 纹理则打开预览
+                if (IsTextureFile(child->extension)) {
+                    TexturePreviewPanel::GetInstance().SetTexturePath(child->fullPath);
+                }
             }
         }
 
-        // 显示路径提示
+        // hover tooltip
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
-            std::string pathStr;
-            int len = WideCharToMultiByte(CP_UTF8, 0, node->fullPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-            if (len > 0) {
-                pathStr.resize(len - 1);
-                WideCharToMultiByte(CP_UTF8, 0, node->fullPath.c_str(), -1, &pathStr[0], len, nullptr, nullptr);
-            }
-            ImGui::Text("%s", pathStr.c_str());
-            ImGui::Text("Extension: %s", node->extension.c_str());
-
-            // 纹理文件提示
-            if (IsTextureFile(node->extension)) {
-                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Double-click to preview");
-            }
-
+            ImGui::Text("%s", WToUtf8(child->fullPath).c_str());
+            if (!child->isDirectory && !child->extension.empty())
+                ImGui::Text("Type: %s", child->extension.c_str());
+            if (child->isDirectory)
+                ImGui::TextDisabled("Double-click to enter");
+            else if (IsTextureFile(child->extension))
+                ImGui::TextColored(ImVec4(1, 1, 0, 1), "Double-click to preview");
             ImGui::EndTooltip();
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// 主窗口：双面板布局
+// ---------------------------------------------------------------------------
 void ResourceManager::ShowResourceWindow(bool* open) {
     if (!ImGui::Begin("Resource Manager", open)) {
         ImGui::End();
         return;
     }
 
-    ImGui::Text("Resource Manager");
-    ImGui::Separator();
-
-    // 统计信息
-    ImGui::Text("Total Shaders Found: %d", GetTotalShaderCount());
-    ImGui::Text("Total Materials Found: %d", GetTotalMaterialCount());
-    ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Note: Resources are loaded automatically at startup");
-    ImGui::Separator();
-
-    // 文件树显示
-    if (ImGui::CollapsingHeader("File Browser", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::Indent();
-
-        // Content 层级完整目录树
-        if (m_contentRoot) {
-            RenderFileTreeNode(m_contentRoot);
-        }
-
-        ImGui::Spacing();
-
-        // Engine 层级完整目录树
-        if (m_engineRoot) {
-            RenderFileTreeNode(m_engineRoot);
-        }
-
-        ImGui::Unindent();
+    // 默认初始化：首次打开时指向 Content 根
+    if (!m_rightCurrent) {
+        m_rightCurrent = m_contentRoot;
+        m_leftSelected = m_contentRoot;
     }
+
+    // 上方工具栏：返回上级 + 当前路径
+    {
+        bool canUp = (m_rightCurrent && m_rightCurrent != m_contentRoot && m_rightCurrent != m_engineRoot);
+        if (!canUp) { ImGui::BeginDisabled(); }
+        if (ImGui::Button(".. (Up)") && m_rightCurrent) {
+            // 查找父节点
+            FileTreeNode* parent = nullptr;
+            parent = FindParentNode(m_contentRoot, m_rightCurrent, nullptr);
+            if (!parent) parent = FindParentNode(m_engineRoot, m_rightCurrent, nullptr);
+            if (parent) {
+                m_rightCurrent = parent;
+                m_leftSelected = parent;
+                m_rightSelected = nullptr;
+            }
+        }
+        if (!canUp) { ImGui::EndDisabled(); }
+
+        ImGui::SameLine();
+        // 根节点切换
+        if (ImGui::Button("Content")) {
+            m_rightCurrent = m_contentRoot;
+            m_leftSelected = m_contentRoot;
+            m_rightSelected = nullptr;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Engine")) {
+            m_rightCurrent = m_engineRoot;
+            m_leftSelected = m_engineRoot;
+            m_rightSelected = nullptr;
+        }
+    }
+
+    ImGui::Separator();
+
+    // 双面板：左 30% 文件夹树，右 70% 平铺
+    float leftW = ImGui::GetWindowWidth() * 0.30f;
+
+    ImGui::BeginChild("##FolderTree", ImVec2(leftW, 0), true);
+    {
+        // 左侧：Content 树
+        if (m_contentRoot) {
+            ImGui::Text("Content");
+            ImGui::Separator();
+            RenderFolderTree(m_contentRoot);
+        }
+        ImGui::Spacing();
+        // 左侧：Engine 树
+        if (m_engineRoot) {
+            ImGui::Text("Engine");
+            ImGui::Separator();
+            RenderFolderTree(m_engineRoot);
+        }
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##TileView", ImVec2(0, 0), true);
+    {
+        RenderTileView(m_rightCurrent);
+    }
+    ImGui::EndChild();
 
     ImGui::End();
 }

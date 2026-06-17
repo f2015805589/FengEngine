@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TextureAsset name="orm" version="1.0">
   <Source>
-    <Path>F:\desktop\Engine\FEngine\Content\Texture\orm.png</Path>
+    <Path>Content\Texture\orm.png</Path>
     <SourceHash>7d0f0667ec14adb7ebb79fc2443aa959</SourceHash>
   </Source>
   <TextureType>Texture2D</TextureType>

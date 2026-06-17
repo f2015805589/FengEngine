@@ -1,4 +1,4 @@
-// PathUtils.h
+﻿// PathUtils.h
 // 项目路径工具 — 通过exe位置动态推算项目根目录，消除硬编码绝对路径
 
 #pragma once
@@ -66,6 +66,34 @@ inline std::wstring GetEnginePath() {
 // 获取 Content 目录（FEngine/Content/）
 inline std::wstring GetContentPath() {
     return GetProjectRoot() + L"Content\\";
+}
+
+// 获取 Saved 目录（FEngine/Saved/），不存在则自动创建
+// 用于持久化引擎运行时状态（窗口布局、配置等），类似 UE 的 Saved/
+inline std::wstring GetSavedPath() {
+    static std::wstring saved;
+    if (saved.empty()) {
+        saved = GetProjectRoot() + L"Saved\\";
+        DWORD attr = GetFileAttributesW(saved.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES) {
+            CreateDirectoryW(saved.c_str(), nullptr);
+        }
+    }
+    return saved;
+}
+
+// 获取 Saved/Config 目录（FEngine/Saved/Config/），不存在则自动创建
+// 类似 UE 的 Saved/Config，存放 ini 配置文件
+inline std::wstring GetSavedConfigPath() {
+    static std::wstring config;
+    if (config.empty()) {
+        config = GetSavedPath() + L"Config\\";
+        DWORD attr = GetFileAttributesW(config.c_str());
+        if (attr == INVALID_FILE_ATTRIBUTES) {
+            CreateDirectoryW(config.c_str(), nullptr);
+        }
+    }
+    return config;
 }
 
 // wstring 转 string 辅助（用于需要 narrow string 的场景）

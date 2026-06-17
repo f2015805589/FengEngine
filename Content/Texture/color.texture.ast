@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TextureAsset name="color" version="1.0">
   <Source>
-    <Path>F:\desktop\Engine\FEngine\Content\Texture\color.png</Path>
+    <Path>Content\Texture\color.png</Path>
     <SourceHash>421f040e458a44921704e3b726768cc6</SourceHash>
   </Source>
   <TextureType>Texture2D</TextureType>

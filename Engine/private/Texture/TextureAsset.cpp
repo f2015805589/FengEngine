@@ -1,4 +1,4 @@
-// TextureAsset.cpp
+﻿// TextureAsset.cpp
 // 纹理资产实现
 
 // 禁用Windows宏以避免与std::max/min冲突
@@ -8,6 +8,7 @@
 #include "public/Texture/TextureManager.h"
 #include "public/Texture/TextureCompressor.h"
 #include "public/BattleFireDirect.h"
+#include "public/PathUtils.h"
 #include <d3dx12.h>
 #include <DirectXTex/DirectXTex.h>
 #include <comdef.h>
@@ -63,6 +64,28 @@ namespace {
         std::wstring result(len - 1, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], len);
         return result;
+    }
+
+    // 绝对路径 → 相对项目根的路径（如 Content/Textures/foo.png）
+    // 如果不是项目根下的路径，原样返回
+    std::wstring ToRelativePath(const std::wstring& absPath) {
+        if (absPath.empty()) return absPath;
+        std::wstring root = GetProjectRoot();
+        // 大小写不敏感比较前缀
+        if (absPath.size() >= root.size() &&
+            _wcsnicmp(absPath.c_str(), root.c_str(), root.size()) == 0) {
+            return absPath.substr(root.size());
+        }
+        return absPath;
+    }
+
+    // 相对项目根的路径 → 绝对路径
+    // 如果已经是绝对路径，原样返回
+    std::wstring ToAbsolutePath(const std::wstring& relPath) {
+        if (relPath.empty()) return relPath;
+        // 判断是否已经是绝对路径（包含盘符或以 / \ 开头）
+        if (relPath.size() >= 2 && relPath[1] == L':') return relPath;
+        return GetProjectRoot() + relPath;
     }
 
     // 计算文件MD5哈希
@@ -769,7 +792,7 @@ bool TextureAsset::ParseAssetXML(const std::wstring& xmlPath) {
                         BSTR val = nullptr;
                         pPath->get_text(&val);
                         if (val) {
-                            m_sourcePath = val;
+                            m_sourcePath = ToAbsolutePath(val);
                             SysFreeString(val);
                         }
                         pPath->Release();
@@ -899,7 +922,7 @@ bool TextureAsset::ParseAssetXML(const std::wstring& xmlPath) {
                         BSTR val = nullptr;
                         pDdsPath->get_text(&val);
                         if (val) {
-                            m_cacheDdsPath = val;
+                            m_cacheDdsPath = ToAbsolutePath(val);
                             SysFreeString(val);
                         }
                         pDdsPath->Release();
@@ -980,7 +1003,7 @@ bool TextureAsset::WriteAssetXML(const std::wstring& xmlPath) {
 
     // Source
     file << L"  <Source>\n";
-    file << L"    <Path>" << m_sourcePath << L"</Path>\n";
+    file << L"    <Path>" << ToRelativePath(m_sourcePath) << L"</Path>\n";
     file << L"    <SourceHash>" << StringToWString(m_sourceHash) << L"</SourceHash>\n";
     file << L"  </Source>\n";
 
@@ -996,7 +1019,7 @@ bool TextureAsset::WriteAssetXML(const std::wstring& xmlPath) {
 
     // Cache
     file << L"  <Cache>\n";
-    file << L"    <DdsPath>" << m_cacheDdsPath << L"</DdsPath>\n";
+    file << L"    <DdsPath>" << ToRelativePath(m_cacheDdsPath) << L"</DdsPath>\n";
     file << L"    <CacheValid>" << (m_cacheValid ? L"true" : L"false") << L"</CacheValid>\n";
     file << L"  </Cache>\n";
 
