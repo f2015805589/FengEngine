@@ -1,4 +1,4 @@
-#include "public/Settings.h"
+﻿#include "public/Settings.h"
 
 void Settings::Initialize(int defaultWidth, int defaultHeight) {
     m_width = defaultWidth;

@@ -1,4 +1,4 @@
-// lightpass.cpp
+﻿// lightpass.cpp
 #include "public/LightPass.h"
 #include "public/Scene.h"
 #include "public/Actor.h"

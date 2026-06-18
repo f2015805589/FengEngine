@@ -1,4 +1,4 @@
-#include "public/TaaPass.h"
+﻿#include "public/TaaPass.h"
 #include "public/Settings.h"
 #include <d3dx12.h>
 #include <stdexcept>
@@ -105,7 +105,7 @@ void TaaPass::CreateRenderTargets() {
 void TaaPass::CreateSRVHeap() {
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    srvHeapDesc.NumDescriptors = 4;
+    srvHeapDesc.NumDescriptors = 5;  // 4 for TAA resolve + 1 for copy
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
     HRESULT hr = gD3D12Device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap));
@@ -373,8 +373,8 @@ void TaaPass::CopyToSwapChain(ID3D12GraphicsCommandList* cmdList,
                                D3D12_CPU_DESCRIPTOR_HANDLE swapChainRTV) {
     ID3D12Resource* currentHistoryRT = m_useHistory2 ? m_historyRT.Get() : m_historyRT2.Get();
 
-    // 为复制操作创建SRV
-    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart());
+    // 为复制操作创建SRV（使用 slot 4，避免覆盖 RenderToSwapChain 的 slot 0~3）
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_srvHeap->GetCPUDescriptorHandleForHeapStart(), 4, m_srvDescriptorSize);
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -386,7 +386,18 @@ void TaaPass::CopyToSwapChain(ID3D12GraphicsCommandList* cmdList,
     cmdList->OMSetRenderTargets(1, &swapChainRTV, FALSE, nullptr);
 
     SetViewportAndScissor(cmdList);
-    BindTaaRenderState(cmdList, copyPso, rootSig, nullptr, m_srvHeap.Get());
+
+    // 手动绑定渲染状态，使用 slot 4 的 GPU handle
+    cmdList->SetGraphicsRootSignature(rootSig);
+    cmdList->SetPipelineState(copyPso);
+    ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+    cmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srvGpuHandle(m_srvHeap->GetGPUDescriptorHandleForHeapStart(), 4, m_srvDescriptorSize);
+    cmdList->SetGraphicsRootDescriptorTable(1, srvGpuHandle);
+    D3D12_VERTEX_BUFFER_VIEW vbv;
+    GetSharedFullscreenQuadVB(vbv);
+    cmdList->IASetVertexBuffers(0, 1, &vbv);
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cmdList->DrawInstanced(6, 1, 0, 0);
 }
 

@@ -1,4 +1,4 @@
-#include "public\BattleFireDirect.h"
+﻿#include "public\BattleFireDirect.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
@@ -16,6 +16,9 @@ ID3D12DescriptorHeap* gSwapChainDSVHeap = nullptr;
 UINT gRTVDescriptorSize = 0;
 UINT gDSVDescriptorSize = 0;
 ID3D12CommandAllocator* gCommandAllocator = nullptr;
+ID3D12CommandAllocator* gCommandAllocators[2] = { nullptr, nullptr };
+UINT64 gFrameFenceValues[2] = { 0, 0 };
+int gFrameIndex = 0;
 ID3D12GraphicsCommandList* gCommandList = nullptr;
 ID3D12Fence* gFence = nullptr;
 HANDLE gFenceEvent = nullptr;
@@ -430,8 +433,10 @@ bool InitD3D12(HWND inHWND, int inWidth, int inHeight) {
 
     gD3D12Device->CreateDepthStencilView(gDSRT, &d3dDSViewDesc, gSwapChainDSVHeap->GetCPUDescriptorHandleForHeapStart());
 
-    gD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&gCommandAllocator));
-    gD3D12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, gCommandAllocator, nullptr, IID_PPV_ARGS(&gCommandList));
+    gD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&gCommandAllocators[0]));
+    gD3D12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&gCommandAllocators[1]));
+    gCommandAllocator = gCommandAllocators[0];
+    gD3D12Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, gCommandAllocators[0], nullptr, IID_PPV_ARGS(&gCommandList));
 
     gD3D12Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gFence));
     gFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -472,6 +477,30 @@ void EndCommandList() {
     gCommandQueue->ExecuteCommandLists(1, ppCommandLists);
     gFenceValue += 1;
     gCommandQueue->Signal(gFence, gFenceValue);
+}
+
+// 帧开始：等待上一轮该 allocator 的 GPU 完成并 Reset
+ID3D12CommandAllocator* BeginFrame() {
+    int idx = gFrameIndex;
+    // 等待该 allocator 上次提交的 GPU 完成
+    if (gFrameFenceValues[idx] > 0 && gFence->GetCompletedValue() < gFrameFenceValues[idx]) {
+        gFence->SetEventOnCompletion(gFrameFenceValues[idx], gFenceEvent);
+        WaitForSingleObject(gFenceEvent, INFINITE);
+    }
+    gCommandAllocators[idx]->Reset();
+    gCommandAllocator = gCommandAllocators[idx];
+    return gCommandAllocators[idx];
+}
+
+// 帧结束：Close + Execute + Signal，记录 fence 值，切换 index
+void EndFrame() {
+    gCommandList->Close();
+    ID3D12CommandList* ppCommandLists[] = { gCommandList };
+    gCommandQueue->ExecuteCommandLists(1, ppCommandLists);
+    gFenceValue += 1;
+    gCommandQueue->Signal(gFence, gFenceValue);
+    gFrameFenceValues[gFrameIndex] = gFenceValue;
+    gFrameIndex = 1 - gFrameIndex;
 }
 void BeginOffscreen(ID3D12GraphicsCommandList* commandList) {
     D3D12_VIEWPORT viewport = { 0.0f, 0.0f, static_cast<float>(gRenderWidth), static_cast<float>(gRenderHeight), 0.0f, 1.0f };

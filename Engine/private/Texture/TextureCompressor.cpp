@@ -1,4 +1,4 @@
-// TextureCompressor.cpp
+﻿// TextureCompressor.cpp
 // GPU纹理压缩器实现
 
 #define NOMINMAX

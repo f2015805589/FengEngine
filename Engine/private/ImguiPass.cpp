@@ -1,4 +1,4 @@
-#include "public\ImguiPass.h"
+ï»¿#include "public\ImguiPass.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
@@ -8,7 +8,7 @@
 
 ID3D12PipelineState* CreateUiPSO(ID3D12RootSignature* inID3D12RootSignature,
     D3D12_SHADER_BYTECODE inVertexShader, D3D12_SHADER_BYTECODE inPixelShader) {
-    // ¶¥µãÊý¾ÝÔªËØÃèÊöÊý×é
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ôªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     D3D12_INPUT_ELEMENT_DESC vertexDataElementDesc[] = {
         {"POSITION",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
         {"TEXCOORD",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,sizeof(float) * 4,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
@@ -16,12 +16,12 @@ ID3D12PipelineState* CreateUiPSO(ID3D12RootSignature* inID3D12RootSignature,
         {"TANGENT",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,sizeof(float) * 12,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0}
     };
 
-    // ¶¥µãÊý¾Ý²¼¾ÖÃèÊö
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     D3D12_INPUT_LAYOUT_DESC vertexDataLayoutDesc = {};
     vertexDataLayoutDesc.NumElements = 4;
     vertexDataLayoutDesc.pInputElementDescs = vertexDataElementDesc;
 
-    // Í¼ÐÎ¹ÜÏß×´Ì¬ÃèÊö
+    // Í¼ï¿½Î¹ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
     psoDesc.pRootSignature = inID3D12RootSignature;
     psoDesc.VS = inVertexShader;
@@ -32,23 +32,23 @@ ID3D12PipelineState* CreateUiPSO(ID3D12RootSignature* inID3D12RootSignature,
     psoDesc.SampleDesc.Quality = 0;
     psoDesc.SampleMask = 0xffffffff;
     psoDesc.InputLayout = vertexDataLayoutDesc;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // Í¼ÔªÍØÆËÀàÐÍÎªÈý½ÇÐÎ
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; // Í¼Ôªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-    // ¹âÕ¤»¯Æ÷×´Ì¬ÉèÖÃ
+    // ï¿½ï¿½Õ¤ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
     psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
     psoDesc.RasterizerState.DepthClipEnable = TRUE;
 
-    // Éî¶ÈÄ£°å×´Ì¬ÉèÖÃ
+    // ï¿½ï¿½ï¿½Ä£ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
     psoDesc.DepthStencilState.DepthEnable = false;
     psoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
     psoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
-    // »ìºÏ×´Ì¬ÉèÖÃ
+    // ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
     psoDesc.BlendState = { 0 };
     D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {
         TRUE,FALSE,
-        D3D12_BLEND_SRC_ALPHA, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_OP_ADD, // Alpha»ìºÏ
+        D3D12_BLEND_SRC_ALPHA, D3D12_BLEND_INV_SRC_ALPHA, D3D12_BLEND_OP_ADD, // Alphaï¿½ï¿½ï¿½
         D3D12_BLEND_ONE,D3D12_BLEND_ZERO,D3D12_BLEND_OP_ADD,
         D3D12_LOGIC_OP_NOOP,
         D3D12_COLOR_WRITE_ENABLE_ALL,
@@ -57,7 +57,7 @@ ID3D12PipelineState* CreateUiPSO(ID3D12RootSignature* inID3D12RootSignature,
         psoDesc.BlendState.RenderTarget[i] = rtBlendDesc;
     psoDesc.NumRenderTargets = 1;
 
-    // ´´½¨¹ÜÏß×´Ì¬¶ÔÏó
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
     ID3D12PipelineState* d3d12PSO = nullptr;
     HRESULT hResult = gD3D12Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&d3d12PSO));
     if (FAILED(hResult)) {

@@ -1,4 +1,4 @@
-// IBLResources.cpp
+﻿// IBLResources.cpp
 // IBL 资源管理类实现
 
 #include "public/IBLResources.h"

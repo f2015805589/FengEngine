@@ -1,4 +1,4 @@
-#include "public/Material/MaterialEditorPanel.h"
+﻿#include "public/Material/MaterialEditorPanel.h"
 #include "public/Material/MaterialManager.h"
 #include "public/Material/MaterialInstance.h"
 #include "public/Material/Shader.h"

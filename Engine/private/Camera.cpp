@@ -39,6 +39,37 @@ void Camera::Update(float deltaTime) {
     right = XMVector3Normalize(right);
     XMStoreFloat3(&m_right, right);
 
+    // WASD 连续移动：每帧轮询按键状态，使用实际 deltaTime
+    if (!ImGui::GetIO().WantCaptureKeyboard || g_viewportHovered) {
+        float move = m_moveSpeed * deltaTime;
+        if (GetAsyncKeyState('W') & 0x8000) {
+            m_position.x += m_forward.x * move;
+            m_position.y += m_forward.y * move;
+            m_position.z += m_forward.z * move;
+        }
+        if (GetAsyncKeyState('S') & 0x8000) {
+            m_position.x -= m_forward.x * move;
+            m_position.y -= m_forward.y * move;
+            m_position.z -= m_forward.z * move;
+        }
+        if (GetAsyncKeyState('A') & 0x8000) {
+            m_position.x += m_right.x * move;
+            m_position.y += m_right.y * move;
+            m_position.z += m_right.z * move;
+        }
+        if (GetAsyncKeyState('D') & 0x8000) {
+            m_position.x -= m_right.x * move;
+            m_position.y -= m_right.y * move;
+            m_position.z -= m_right.z * move;
+        }
+        if (GetAsyncKeyState('Q') & 0x8000) {
+            m_position.y -= move;
+        }
+        if (GetAsyncKeyState('E') & 0x8000) {
+            m_position.y += move;
+        }
+    }
+
     // 摄像机位置向量
     XMVECTOR pos = XMLoadFloat3(&m_position);
 
@@ -119,40 +150,8 @@ void Camera::HandleInput(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         m_position.z += m_forward.z * moveAmount;
         break;
     }
-    case WM_KEYDOWN: {
-        // WASD基于摄像机朝向移动（使用deltaTime计算实际移动距离）
-        float move = m_moveSpeed * 0.016f; // 基于60FPS的近似deltaTime
-        switch (wParam) {
-        case 'W': // 向前（沿摄像机前向）
-            m_position.x += m_forward.x * move;
-            m_position.y += m_forward.y * move;
-            m_position.z += m_forward.z * move;
-            break;
-        case 'S': // 向后（沿摄像机前向反方向）
-            m_position.x -= m_forward.x * move;
-            m_position.y -= m_forward.y * move;
-            m_position.z -= m_forward.z * move;
-            break;
-        case 'A': // 向左（沿摄像机右向反方向）
-            m_position.x += m_right.x * move;
-            m_position.y += m_right.y * move;
-            m_position.z += m_right.z * move;
-            break;
-        case 'D': // 向右（沿摄像机右向）
-            m_position.x -= m_right.x * move;
-            m_position.y -= m_right.y * move;
-            m_position.z -= m_right.z * move;
-            break;
-        case 'Q': // 下移（世界坐标系Y轴负方向）
-            m_position.y -= move;
-            break;
-        case 'E': // 上移（世界坐标系Y轴正方向）
-            m_position.y += move;
-            break;
-        }
-        break;
     }
-    }
+    // 注意：WASD 移动已移至 Camera::Update() 中每帧轮询，使用实际 deltaTime
 }
 
 XMMATRIX Camera::GetViewMatrix() const {

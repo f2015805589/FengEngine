@@ -1,4 +1,4 @@
-#include "public/GtaoPass.h"
+﻿#include "public/GtaoPass.h"
 #include <d3dx12.h>
 #include <stdexcept>
 #include <iostream>

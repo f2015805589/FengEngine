@@ -1,4 +1,4 @@
-// TextureCompressor.h
+﻿// TextureCompressor.h
 // GPU纹理压缩器
 
 #pragma once

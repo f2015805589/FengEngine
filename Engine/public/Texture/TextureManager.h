@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "TextureAsset.h"
 #include <map>
 #include <memory>

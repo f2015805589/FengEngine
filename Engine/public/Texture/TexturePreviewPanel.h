@@ -1,4 +1,4 @@
-// TexturePreviewPanel.h
+﻿// TexturePreviewPanel.h
 // 纹理预览面板
 
 #pragma once

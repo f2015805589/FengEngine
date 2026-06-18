@@ -27,6 +27,7 @@
 #include "public/PathUtils.h"
 #include "public/ViewportManager.h"
 #include <fstream>
+#include <mmsystem.h>
 
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -668,7 +669,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     UpdateWindow(hwnd);
 
     MSG msg = {};
-    DWORD last_time = timeGetTime();
+
+    // 高精度计时器
+    LARGE_INTEGER perfFreq;
+    QueryPerformanceFrequency(&perfFreq);
+    double perfFreqInv = 1.0 / (double)perfFreq.QuadPart;
+    LARGE_INTEGER lastTime;
+    QueryPerformanceCounter(&lastTime);
 
     WindowLayoutState layout;
     layout.Load();
@@ -720,7 +727,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             DispatchMessage(&msg);
         }
         else {
-            WaitForCompletionOfCommandList();
+            // 帧首：双 allocator 轮转，等待上一轮该 allocator 的 GPU 完成
+            ID3D12CommandAllocator* commandAllocator = BeginFrame();
 
             // ======= 处理窗口物理尺寸变更（仅调整 swapchain）=======
             if (g_pendingSwapChainResize) {
@@ -728,18 +736,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 int newHeight = g_pendingSwapChainHeight;
                 g_pendingSwapChainResize = false;
 
-                HRESULT hr = commandAllocator->Reset();
-                if (SUCCEEDED(hr)) {
-                    hr = commandList->Reset(commandAllocator, nullptr);
-                    if (SUCCEEDED(hr)) {
-                        commandList->Close();
-                    }
-                }
                 FlushGPU();
-
                 ResizeSwapChainOnly(newWidth, newHeight);
-
-                commandAllocator->Reset();
             }
 
             // ======= 处理视口尺寸变更（由上一帧 Docking 布局变化触发）======
@@ -748,22 +746,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 int newHeight = pendingViewportHeight;
                 pendingViewportResize = false;
 
-                HRESULT hr = commandAllocator->Reset();
-                if (SUCCEEDED(hr)) {
-                    hr = commandList->Reset(commandAllocator, nullptr);
-                    if (SUCCEEDED(hr)) {
-                        commandList->Close();
-                    }
-                }
                 FlushGPU();
-
                 ResizeViewportRenderTargets(newWidth, newHeight);
 
                 char debugMsg[256];
                 sprintf_s(debugMsg, "Viewport resized to %dx%d\n", newWidth, newHeight);
                 OutputDebugStringA(debugMsg);
-
-                commandAllocator->Reset();
             }
 
             // ======= 处理分辨率变更请求（用户从 Setting UI 选择）=======
@@ -773,14 +761,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 bool shouldResizeWindow = Settings::GetInstance().ShouldResizeWindow();
                 Settings::GetInstance().ClearPendingResolutionChange();
 
-                WaitForCompletionOfCommandList();
-                HRESULT hr = commandAllocator->Reset();
-                if (SUCCEEDED(hr)) {
-                    hr = commandList->Reset(commandAllocator, nullptr);
-                    if (SUCCEEDED(hr)) {
-                        commandList->Close();
-                    }
-                }
                 FlushGPU();
 
                 if (shouldResizeWindow) {
@@ -793,11 +773,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 char debugMsg[256];
                 sprintf_s(debugMsg, "Resolution changed to %dx%d\n", newWidth, newHeight);
                 OutputDebugStringA(debugMsg);
-
-                commandAllocator->Reset();
             }
-
-            commandAllocator->Reset();
 
             // 延迟纹理加载：在帧开始前、GPU空闲时处理待加载的纹理
             if (TexturePreviewPanel::GetInstance().HasPendingLoad()) {
@@ -806,12 +782,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 TexturePreviewPanel::GetInstance().ProcessPendingLoad();
                 EndCommandList();
                 WaitForCompletionOfCommandList();
-                commandAllocator->Reset();
             }
 
-            DWORD current_time = timeGetTime();
-            float deltaTime = (current_time - last_time) / 1000.0f;
-            last_time = current_time;
+            LARGE_INTEGER currentTime;
+            QueryPerformanceCounter(&currentTime);
+            float deltaTime = (float)((double)(currentTime.QuadPart - lastTime.QuadPart) * perfFreqInv);
+            lastTime = currentTime;
             // TAA: 在帧开始时更新Jitter（必须在场景渲染之前）
             if (taaPass->IsEnabled()) {
                 taaPass->UpdateJitter();
@@ -832,25 +808,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             commandList->SetDescriptorHeaps(_countof(srvHeaps), srvHeaps);
             g_scene->Render(commandList, gbufferPso, rootSignature);
             commandList->EndEvent();
-            EndCommandList();
-            WaitForCompletionOfCommandList();  // Wait for BasePass to complete
 
             //LightPass=======================================
             // 执行LightPass（包含Shadow Map生成和光照计算）
             // 只有在shadowmap开启时才执行
             if (g_scene->IsShadowmapEnabled()) {
-                commandList->Reset(commandAllocator, shadowPso);
                 commandList->BeginEvent(0, L"LightPass", (UINT)(wcslen(L"LightPass") * sizeof(wchar_t)));
                 lightPass->RenderDirectLight(commandList, shadowPso, lightPso, rootSignature, g_scene, gDSRT);
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();  // Wait for LightPass to complete
             }
 
             //GtaoPass=======================================
             // 执行GTAO（在LightPass之后、SkyPass之前）
             if (gtaoPass->IsEnabled()) {
-                commandList->Reset(commandAllocator, gtaoPso);
                 commandList->BeginEvent(0, L"GtaoPass", (UINT)(wcslen(L"GtaoPass") * sizeof(wchar_t)));
 
                 // 注意：深度缓冲在BasePass的Scene::Render末尾已经被转为PIXEL_SHADER_RESOURCE
@@ -862,14 +832,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     gtaoSceneRTs[1]);   // 法线RT (GBuffer RT1，已经是PIXEL_SHADER_RESOURCE状态)
 
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();  // Wait for GtaoPass to complete
             }
 
             //SsgiPass=======================================
             // 执行SSGI（在GTAO之后、SkyPass之前）
             if (ssgiPass->IsEnabled()) {
-                commandList->Reset(commandAllocator, ssgiDepthPso);
                 commandList->BeginEvent(0, L"SsgiPass", (UINT)(wcslen(L"SsgiPass") * sizeof(wchar_t)));
 
                 auto& ssgiSceneRTs = g_scene->m_offscreenRTs;
@@ -886,8 +853,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     ssgiSceneRTs[3]);  // Velocity RT (Motion Vector)
 
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();  // Wait for SsgiPass to complete
             }
 
             // 视口颜色缓冲 RTV（SkyPass / ScreenPass / TAA 的最终输出目标）
@@ -899,7 +864,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             // 执行SkyPass（渲染天空球，在ScreenPass之前）
             // 当TAA启用时，渲染到中间RT；否则渲染到视口颜色缓冲
             if (skyPso) {
-                commandList->Reset(commandAllocator, skyPso);
                 commandList->BeginEvent(0, L"SkyPass", (UINT)(wcslen(L"SkyPass") * sizeof(wchar_t)));
 
                 // 视口颜色缓冲从 PIXEL_SHADER_RESOURCE 转回 RENDER_TARGET，供 3D Pass 写入
@@ -942,12 +906,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 skyPass->Render(commandList, skyPso, rootSignature, skyTextureForSky);
 
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();  // Wait for SkyPass to complete
             }
 
             //ScreenPass======================================
-            commandList->Reset(commandAllocator, deferredLightingPso);
             commandList->BeginEvent(0, L"ScreenPass", (UINT)(wcslen(L"ScreenPass") * sizeof(wchar_t)));
 
             if (taaPass->IsEnabled()) {
@@ -996,12 +957,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             commandList->ResourceBarrier(1, &depthBarrier);
 
             commandList->EndEvent();
-            EndCommandList();
-            WaitForCompletionOfCommandList();  // Wait for ScreenPass to complete
 
             // TAA Pass
             if (taaPass->IsEnabled()) {
-                commandList->Reset(commandAllocator, taaPso);
+                // TAA 需要读取深度缓冲作为 SRV，先把深度从 DEPTH_WRITE 转为 SRV
+                D3D12_RESOURCE_BARRIER depthToSRV = {};
+                depthToSRV.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                depthToSRV.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+                depthToSRV.Transition.pResource = gDSRT;
+                depthToSRV.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+                depthToSRV.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                depthToSRV.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                commandList->ResourceBarrier(1, &depthToSRV);
+
                 commandList->BeginEvent(0, L"TaaPass", (UINT)(wcslen(L"TaaPass") * sizeof(wchar_t)));
 
                 // 获取Motion Vector RT
@@ -1012,11 +980,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                     motionVectorRT, gDSRT, viewportColorRTV);
 
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();
 
                 // 复制TAA结果到视口颜色缓冲
-                commandList->Reset(commandAllocator, taaCopyPso);
                 commandList->BeginEvent(0, L"TaaCopy", (UINT)(wcslen(L"TaaCopy") * sizeof(wchar_t)));
 
                 commandList->OMSetRenderTargets(1, &viewportColorRTV, FALSE, nullptr);
@@ -1027,8 +992,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 taaPass->CopyToSwapChain(commandList, taaCopyPso, rootSignature, viewportColorRTV);
 
                 commandList->EndEvent();
-                EndCommandList();
-                WaitForCompletionOfCommandList();
+
+                // TAA 结束，深度缓冲转回 DEPTH_WRITE，为下一帧 BasePass 准备
+                D3D12_RESOURCE_BARRIER depthToWrite = {};
+                depthToWrite.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                depthToWrite.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+                depthToWrite.Transition.pResource = gDSRT;
+                depthToWrite.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                depthToWrite.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+                depthToWrite.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                commandList->ResourceBarrier(1, &depthToWrite);
 
                 // 在帧结束时更新上一帧的 VP 矩阵
                 g_scene->UpdatePreviousViewProjectionMatrix();
@@ -1038,7 +1011,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
             }
 
             //UiPass==========================================
-            commandList->Reset(commandAllocator, UiPso);
             commandList->BeginEvent(0, L"UIPass", (UINT)(wcslen(L"UIPass") * sizeof(wchar_t)));
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -1146,6 +1118,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 ImGui::SliderFloat("Move Speed", &moveSpeed, 0.1f, 100.0f);
                 g_scene->SetCameraLookSpeed(mouseSpeed);
                 g_scene->SetCameraMoveSpeed(moveSpeed);
+
+                ImGui::Separator();
+                ImGui::Text("Frame Rate Limit");
+                const char* fpsOptions[] = { "60", "120", "144", "180", "Unlimited" };
+                int fpsValues[] = { 60, 120, 144, 180, 0 };
+                int currentFps = Settings::GetInstance().GetFpsLimit();
+                int fpsIdx = 4; // default: unlimited
+                for (int i = 0; i < 5; i++) { if (fpsValues[i] == currentFps) { fpsIdx = i; break; } }
+                if (ImGui::Combo("FPS Limit", &fpsIdx, fpsOptions, 5)) {
+                    Settings::GetInstance().SetFpsLimit(fpsValues[fpsIdx]);
+                }
 
                 ImGui::Separator();
                 ImGui::Text("TAA Settings");
@@ -1317,7 +1300,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
                 // 通用Actor创建lambda
                 auto CreateActorFromMesh = [&](const std::wstring& meshPath, const std::string& prefix, int& counter) {
                     WaitForCompletionOfCommandList();
-                    commandAllocator->Reset();
                     commandList->Reset(commandAllocator, nullptr);
 
                     counter++;
@@ -1521,8 +1503,24 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
             EndRenderToSwapChain(commandList);
             commandList->EndEvent();
-            EndCommandList();
+            EndFrame();
             SwapD3D12Buffers();
+
+            // 帧限制器：CPU 端 sleep 到目标帧时间
+            int fpsLimit = Settings::GetInstance().GetFpsLimit();
+            if (fpsLimit > 0) {
+                double targetFrameTime = 1.0 / (double)fpsLimit;
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                double elapsed = (double)(now.QuadPart - lastTime.QuadPart) * perfFreqInv;
+                double sleepTime = targetFrameTime - elapsed;
+                if (sleepTime > 0.001) {
+                    // 用 timeBeginPeriod 提高 sleep 精度，sleep 略短于目标留余量给 OS 调度
+                    timeBeginPeriod(1);
+                    Sleep((DWORD)(sleepTime * 1000.0));
+                    timeEndPeriod(1);
+                }
+            }
         }
     }
 

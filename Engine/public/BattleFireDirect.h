@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <d3dcompiler.h>
@@ -85,6 +85,10 @@ void FlushGPU();
 
 // 结束命令列表并执行
 void EndCommandList();
+
+// 双 allocator 帧管理
+ID3D12CommandAllocator* BeginFrame();
+void EndFrame();
 
 void BeginOffscreen(ID3D12GraphicsCommandList* commandList);
 

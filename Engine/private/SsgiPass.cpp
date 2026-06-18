@@ -1,4 +1,4 @@
-#include "public/SsgiPass.h"
+﻿#include "public/SsgiPass.h"
 #include <d3dx12.h>
 #include <stdexcept>
 #include <vector>

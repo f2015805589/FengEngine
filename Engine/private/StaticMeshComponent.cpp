@@ -1,4 +1,4 @@
-// Engine/private/StaticMeshComponent.cpp
+﻿// Engine/private/StaticMeshComponent.cpp
 #include "public/StaticMeshComponent.h"
 #include "public/BattleFireDirect.h"
 #include "public/Material/MaterialInstance.h"

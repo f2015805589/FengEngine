@@ -1,4 +1,4 @@
-#include "public/Material/Shader.h"
+﻿#include "public/Material/Shader.h"
 #include "public/Material/ShaderParser.h"
 #include "public/Material/MaterialManager.h"
 #include "public/BattleFireDirect.h"

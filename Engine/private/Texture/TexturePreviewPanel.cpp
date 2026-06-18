@@ -1,4 +1,4 @@
-// TexturePreviewPanel.cpp
+﻿// TexturePreviewPanel.cpp
 // 纹理预览面板实现 - 支持完整的通道可视化
 
 #define NOMINMAX

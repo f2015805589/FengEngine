@@ -1,4 +1,4 @@
-// 新增方法 - 添加到Shader.cpp末尾
+﻿// 新增方法 - 添加到Shader.cpp末尾
 // 注意：LoadFromShaderFile的实现已经移到Shader.cpp中，这里不再需要
 
 /*

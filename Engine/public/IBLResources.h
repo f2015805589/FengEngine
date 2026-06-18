@@ -1,4 +1,4 @@
-// IBLResources.h
+﻿// IBLResources.h
 // IBL 资源管理类 - 管理预计算的 IBL 纹理
 
 #pragma once

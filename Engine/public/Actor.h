@@ -1,4 +1,4 @@
-// Actor.h
+﻿// Actor.h
 #pragma once
 #include <string>
 #include <DirectXMath.h>

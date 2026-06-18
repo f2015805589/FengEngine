@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <d3dcompiler.h>
@@ -7,9 +7,9 @@
 
 extern ID3D12Device* gD3D12Device;
 
-// ´´½¨äÖÈ¾¹ÜÏß×´Ì¬¶ÔÏó
-// inID3D12RootSignature: ¸ùÇ©Ãû
-// inVertexShader: ¶¥µã×ÅÉ«Æ÷×Ö½ÚÂë
-// inPixelShader: ÏñËØ×ÅÉ«Æ÷×Ö½ÚÂë
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¾ï¿½ï¿½ï¿½ï¿½×´Ì¬ï¿½ï¿½ï¿½ï¿½
+// inID3D12RootSignature: ï¿½ï¿½Ç©ï¿½ï¿½
+// inVertexShader: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É«ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½
+// inPixelShader: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É«ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½
 ID3D12PipelineState* CreateUiPSO(ID3D12RootSignature* inID3D12RootSignature,
     D3D12_SHADER_BYTECODE inVertexShader, D3D12_SHADER_BYTECODE inPixelShader);

@@ -1,4 +1,4 @@
-#include "public/ScreenPass.h"
+﻿#include "public/ScreenPass.h"
 #include <d3dx12.h>
 #include <stdexcept>
 

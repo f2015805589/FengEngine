@@ -1,4 +1,4 @@
-#include "public/Material/MaterialManager.h"
+﻿#include "public/Material/MaterialManager.h"
 #include "public/Texture/TextureManager.h"
 #include "public/Texture/TextureAsset.h"
 #include "public/Scene.h"

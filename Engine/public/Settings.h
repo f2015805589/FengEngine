@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <functional>
 #include <vector>
 #include <string>
@@ -43,6 +43,10 @@ public:
     // 注册分辨率变化回调
     void RegisterResolutionChangedCallback(ResolutionChangedCallback callback);
 
+    // 帧率限制
+    int GetFpsLimit() const { return m_fpsLimit; }
+    void SetFpsLimit(int fps) { m_fpsLimit = fps; }
+
     // 相机设置
     float GetMouseSpeed() const { return m_mouseSpeed; }
     void SetMouseSpeed(float speed) { m_mouseSpeed = speed; }
@@ -79,6 +83,8 @@ private:
     float m_mouseSpeed = 5.0f;
     float m_moveSpeed = 50.0f;
     float m_taaJitterScale = 1.0f;  // TAA Jitter强度，默认1.0（标准-0.5到0.5像素）
+
+    int m_fpsLimit = 144;  // 帧率限制，0 表示无限制
 
     std::vector<ResolutionOption> m_resolutionOptions;
     std::vector<ResolutionChangedCallback> m_resolutionCallbacks;

@@ -1,4 +1,4 @@
-// Engine/public/Texture.h
+О╩©// Engine/public/Texture.h
 #ifndef TEXTURE_H
 #define TEXTURE_H
 
@@ -20,15 +20,15 @@
 
 using Microsoft::WRL::ComPtr;
 
-// х╚╬жнфюМ╫А╧╧лЕё╛сцсз╢Ф╢╒нфюМоЮ╧ьвйт╢╨мпео╒
+// х╚О©╫О©╫О©╫О©╫О©╫О©╫А╧╧О©╫Её╛О©╫О©╫О©╫з╢Ф╢╒О©╫О©╫О©╫О©╫О©╫О©╫О©╫О©╫О©╫т╢О©╫О©╫О©╫О©╫о╒
 struct Texture
 {
-    std::string name;//нфюМцШ
-    wchar_t fileName[MAX_PATH];;//нфюМкЫтзб╥╬╤╣дд©б╪цШ
-    ComPtr<ID3D12Resource> resource = nullptr;//╥╣╩ь╣днфюМвйт╢
-    ComPtr<ID3D12Resource> uploadHeap = nullptr;//╥╣╩ь╣дио╢╚╤яжп╣днфюМвйт╢
-    std::unique_ptr<uint8_t[]> ddsData;  // пбтЖё╨╢Ф╢╒DDSт╜й╪йЩ╬щ
-    std::vector<D3D12_SUBRESOURCE_DATA> subresources;  // пбтЖё╨╢Ф╢╒всвйт╢пео╒
+    std::string name;//О©╫О©╫О©╫О©╫О©╫О©╫
+    wchar_t fileName[MAX_PATH];;//О©╫О©╫О©╫О©╫О©╫О©╫О©╫О©╫б╥О©╫О©╫О©╫О©╫д©б╪О©╫О©╫
+    ComPtr<ID3D12Resource> resource = nullptr;//О©╫О©╫О©╫ь╣О©╫О©╫О©╫О©╫О©╫О©╫О©╫т╢
+    ComPtr<ID3D12Resource> uploadHeap = nullptr;//О©╫О©╫О©╫ь╣О©╫О©╫о╢О©╫О©╫О©╫О©╫п╣О©╫О©╫О©╫О©╫О©╫О©╫О©╫т╢
+    std::unique_ptr<uint8_t[]> ddsData;  // О©╫О©╫О©╫О©╫О©╫О©╫О©╫Ф╢╒DDSт╜й╪О©╫О©╫О©╫О©╫
+    std::vector<D3D12_SUBRESOURCE_DATA> subresources;  // О©╫О©╫О©╫О©╫О©╫О©╫О©╫Ф╢╒О©╫О©╫О©╫О©╫т╢О©╫О©╫о╒
 };
 
 #endif // TEXTURE_H

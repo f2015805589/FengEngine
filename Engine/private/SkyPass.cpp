@@ -1,4 +1,4 @@
-// SkyPass.cpp
+﻿// SkyPass.cpp
 #include "public/SkyPass.h"
 #include <d3dx12.h>
 #include <DirectXMath.h>

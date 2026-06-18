@@ -1,4 +1,4 @@
-#include "public/ViewportManager.h"
+﻿#include "public/ViewportManager.h"
 #include "public/BattleFireDirect.h"
 #include <d3dx12.h>
 

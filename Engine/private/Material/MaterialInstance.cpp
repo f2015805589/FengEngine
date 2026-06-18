@@ -1,4 +1,4 @@
-#include "public/Material/MaterialInstance.h"
+﻿#include "public/Material/MaterialInstance.h"
 #include "public/BattleFireDirect.h"
 #include "public/Scene.h"
 #include "public/Texture/TextureManager.h"
